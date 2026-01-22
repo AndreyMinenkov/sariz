@@ -1,0 +1,12 @@
+import React from "react";
+
+const TreasuryPayment: React.FC = () => {
+  return (
+    <div>
+      <h1>На оплате</h1>
+      <p>Страница в разработке</p>
+    </div>
+  );
+};
+
+export default TreasuryPayment;

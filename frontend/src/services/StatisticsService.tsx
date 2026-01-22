@@ -1,0 +1,161 @@
+import axios from 'axios';
+
+const API_URL = '/api/statistics';
+
+// Создаем экземпляр axios с настройками
+const api = axios.create({
+  baseURL: '/',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Интерсептор для добавления токена
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Интерсептор для обработки ошибок
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+export interface StatisticsData {
+  group_by: string;
+  period: {
+    start_date: string | null;
+    end_date: string | null;
+  };
+  total: {
+    count: number;
+    amount: number;
+  };
+  data: Array<{
+    group: string;
+    count: number;
+    total_amount: number;
+  }>;
+}
+
+export interface GroupingOption {
+  value: string;
+  label: string;
+}
+
+export interface RequestDetail {
+  id: string;
+  article: string;
+  amount: number;
+  recipient: string;
+  request_number: string;
+  request_date: string | null;
+  status: string;
+  organization: string;
+  department: string;
+  purpose: string;
+  payment_date: string | null;
+  applicant: string;
+  category: string;
+  paid_at: string | null;
+  created_at: string | null;
+}
+
+class StatisticsService {
+  // Получение доступных группировок
+  async getAvailableGroupings(): Promise<GroupingOption[]> {
+    const response = await api.get(`${API_URL}/available-groupings`);
+    return response.data;
+  }
+
+  // Получение доступных статусов
+  async getAvailableStatuses(): Promise<GroupingOption[]> {
+    const response = await api.get(`${API_URL}/available-statuses`);
+    return response.data;
+  }
+
+  // Получение данных для дашборда
+  async getDashboardData(
+    startDate?: string,
+    endDate?: string,
+    groupBy: string = 'article',
+    status?: string
+  ): Promise<StatisticsData> {
+    const params: any = { group_by: groupBy };
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+    if (status) params.status = status;
+
+    const response = await api.get(`${API_URL}/dashboard`, { params });
+    return response.data;
+  }
+
+  // Получение детальных данных
+  async getDetailedData(
+    startDate?: string,
+    endDate?: string,
+    groupBy: string = 'article',
+    groupValue?: string,
+    status?: string
+  ): Promise<RequestDetail[]> {
+    const params: any = { group_by: groupBy };
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+    if (groupValue) params.group_value = groupValue;
+    if (status) params.status = status;
+
+    const response = await api.get(`${API_URL}/details`, { params });
+    return response.data;
+  }
+
+  // Экспорт в Excel
+  async exportToExcel(
+    startDate?: string,
+    endDate?: string,
+    groupBy: string = 'article',
+    status?: string
+  ): Promise<void> {
+    const params: any = { group_by: groupBy };
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+    if (status) params.status = status;
+
+    const response = await api.get(`${API_URL}/export`, {
+      params,
+      responseType: 'blob'
+    });
+
+    // Создание ссылки для скачивания
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+
+    // Извлекаем имя файла из заголовков или используем дефолтное
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = 'statistics.xlsx';
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  }
+}
+
+export default new StatisticsService();

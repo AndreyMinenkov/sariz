@@ -1,0 +1,297 @@
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import axios from 'axios';
+import DataTable from '../components/DataTable';
+import { getTableColumns } from '../config/tableColumns';
+import { useColumnSettings } from '../contexts/ColumnSettingsContext';
+
+// Создаем инстанс axios с интерсепторами
+const api = axios.create({
+  baseURL: '/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Интерсептор для добавления токена
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Интерсептор для обработки ошибок
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+const TreasuryApproved: React.FC = () => {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [deputyComment, setDeputyComment] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const location = useLocation();
+  const { settings: columnSettings } = useColumnSettings();
+
+  const fetchApprovedRequests = async () => {
+    try {
+      setLoading(true);
+      const params: any = {};
+      if (statusFilter) params.status = statusFilter;
+      const response = await api.get('/treasury/requests', { params });
+      console.log('Заявки согласованные в оплату:', response.data.length);
+      setRequests(response.data);
+      setError(null);
+      
+      // TODO: Здесь нужно получить комментарий заместителя
+      // Пока используем заглушку
+      setDeputyComment('Заявки согласованы заместителем генерального директора для оплаты');
+      
+    } catch (err: any) {
+      console.error('Ошибка загрузки заявок:', err);
+      setError(err.response?.data?.detail || 'Ошибка загрузки заявок');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Обновляем данные при каждом показе страницы
+  useEffect(() => {
+    fetchApprovedRequests();
+  }, [location.pathname, statusFilter]);
+
+  const handleRowSelect = (rowId: string) => {
+    setSelectedRows(prev =>
+      prev.includes(rowId)
+        ? prev.filter(id => id !== rowId)
+        : [...prev, rowId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedRows.length === requests.length) {
+      setSelectedRows([]);
+    } else {
+      setSelectedRows(requests.map(request => request.id));
+    }
+  };
+
+  const handleExportToExcel = async () => {
+    if (selectedRows.length === 0) {
+      alert('Выберите заявки для экспорта');
+      return;
+    }
+
+    try {
+      const response = await api.post('/treasury/export', {
+        request_ids: selectedRows,
+        export_all: false
+      }, {
+        responseType: 'blob'
+      });
+
+      // Создаем URL для скачивания файла
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Получаем имя файла из заголовков
+      const contentDisposition = response.headers['content-disposition'];
+      let fileName = 'Заявки_согласованные_в_оплату.xlsx';
+      
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
+        if (fileNameMatch && fileNameMatch.length === 2) {
+          fileName = fileNameMatch[1];
+        }
+      }
+      
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+    } catch (err: any) {
+      console.error('Ошибка экспорта:', err);
+      alert(err.response?.data?.detail || 'Ошибка экспорта заявок');
+    }
+  };
+
+  const handleExportAll = async () => {
+    try {
+      const response = await api.post('/treasury/export', {
+        export_all: true
+      }, {
+        responseType: 'blob'
+      });
+
+      // Создаем URL для скачивания файла
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Получаем имя файла из заголовков
+      const contentDisposition = response.headers['content-disposition'];
+      let fileName = 'Все_заявки_согласованные_в_оплату.xlsx';
+      
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
+        if (fileNameMatch && fileNameMatch.length === 2) {
+          fileName = fileNameMatch[1];
+        }
+      }
+      
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+    } catch (err: any) {
+      console.error('Ошибка экспорта всех заявок:', err);
+      alert(err.response?.data?.detail || 'Ошибка экспорта всех заявок');
+    }
+  };
+
+  // Получаем колонки для таблицы
+  const tableColumns = getTableColumns();
+
+  // Получаем роль пользователя из localStorage
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const userRole = user.role || 'employee';
+
+  if (loading) {
+    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
+      Загрузка заявок...
+    </div>;
+  }
+
+  if (error) {
+    return <div style={{ padding: '20px', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '6px', color: '#721c24', margin: '20px' }}>
+      Ошибка: {error}
+    </div>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Заголовок и описание */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 600 }}>Заявки</h1>
+          <p style={{ margin: '4px 0 0 0', color: '#666', fontSize: '14px' }}>
+            Заявки казначейства
+          </p>
+        </div>
+        
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button
+            onClick={handleExportToExcel}
+            disabled={selectedRows.length === 0}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: selectedRows.length === 0 ? '#6c757d' : '#28a745',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '14px',
+              fontWeight: 500,
+              opacity: selectedRows.length === 0 ? 0.65 : 1
+            }}
+          >
+            Экспорт выбранных
+          </button>
+          
+          <button
+            onClick={handleExportAll}
+            disabled={requests.length === 0}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: requests.length === 0 ? '#6c757d' : '#17a2b8',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: requests.length === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '14px',
+              fontWeight: 500,
+              opacity: requests.length === 0 ? 0.65 : 1
+            }}
+          >
+            Экспорт всех
+          </button>
+        </div>
+      </div>
+
+      {/* Комментарий заместителя */}
+      {deputyComment && (
+        <div style={{
+          marginBottom: '16px',
+          padding: '16px',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '6px',
+          borderLeft: '4px solid #007bff'
+        }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 600 }}>Комментарий заместителя:</h3>
+          <div style={{
+            padding: '12px',
+            backgroundColor: 'white',
+            borderRadius: '4px',
+            border: '1px solid #dee2e6'
+          }}>
+            <p style={{ margin: 0, color: '#495057', fontSize: '14px', lineHeight: 1.5 }}>
+              {deputyComment}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Информация о выборе */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '12px',
+        padding: '12px 16px',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '6px',
+        fontSize: '14px'
+      }}>
+        <div style={{ color: '#495057', fontWeight: 500 }}>
+          Выбрано заявок: {selectedRows.length} из {requests.length}
+        </div>
+        
+        {requests.length > 0 && (
+          <div style={{ color: '#495057' }}>
+            Общая сумма: {requests.reduce((sum, req) => sum + (req.amount || 0), 0).toFixed(2)} руб.
+          </div>
+        )}
+      </div>
+
+      {/* Таблица заявок */}
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <DataTable
+          columns={tableColumns}
+          data={requests}
+          selectedRows={selectedRows}
+          onRowSelect={handleRowSelect}
+          onSelectAll={handleSelectAll}
+          currentUserRole={userRole}
+          columnSettings={columnSettings}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default TreasuryApproved;

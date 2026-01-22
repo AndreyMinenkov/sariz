@@ -1,0 +1,251 @@
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import axios from 'axios';
+import DataTable from '../components/DataTable';
+import { getTableColumns } from '../config/tableColumns';
+import { useColumnSettings } from '../contexts/ColumnSettingsContext';
+import './TreasuryApproved.css';
+
+// Создаем инстанс axios с интерсепторами
+const api = axios.create({
+  baseURL: '/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Интерсептор для добавления токена
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Интерсептор для обработки ошибок
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+const TreasuryApproved: React.FC = () => {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [deputyComment, setDeputyComment] = useState<string>('');
+  const location = useLocation();
+  const { settings: columnSettings } = useColumnSettings();
+
+  const fetchApprovedRequests = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/treasury/for-payment');
+      console.log('Заявки согласованные в оплату:', response.data.length);
+      setRequests(response.data);
+      setError(null);
+      
+      // TODO: Здесь нужно получить комментарий заместителя
+      // Пока используем заглушку
+      setDeputyComment('Заявки согласованы заместителем генерального директора для оплаты');
+      
+    } catch (err: any) {
+      console.error('Ошибка загрузки заявок:', err);
+      setError(err.response?.data?.detail || 'Ошибка загрузки заявок');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Обновляем данные при каждом показе страницы
+  useEffect(() => {
+    fetchApprovedRequests();
+  }, [location.pathname]);
+
+  const handleRowSelect = (rowId: string) => {
+    setSelectedRows(prev =>
+      prev.includes(rowId)
+        ? prev.filter(id => id !== rowId)
+        : [...prev, rowId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedRows.length === requests.length) {
+      setSelectedRows([]);
+    } else {
+      setSelectedRows(requests.map(request => request.id));
+    }
+  };
+
+  const handleExportToExcel = async () => {
+    if (selectedRows.length === 0) {
+      alert('Выберите заявки для экспорта');
+      return;
+    }
+
+    try {
+      const response = await api.post('/treasury/export', {
+        request_ids: selectedRows,
+        export_all: false
+      }, {
+        responseType: 'blob' // Важно для загрузки файла
+      });
+
+      // Создаем URL для скачивания файла
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Получаем имя файла из заголовков или используем дефолтное
+      const contentDisposition = response.headers['content-disposition'];
+      let fileName = 'Заявки_согласованные_в_оплату.xlsx';
+      
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
+        if (fileNameMatch && fileNameMatch.length === 2) {
+          fileName = fileNameMatch[1];
+        }
+      }
+      
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+    } catch (err: any) {
+      console.error('Ошибка экспорта:', err);
+      alert(err.response?.data?.detail || 'Ошибка экспорта заявок');
+    }
+  };
+
+  const handleExportAll = async () => {
+    try {
+      const response = await api.post('/treasury/export', {
+        export_all: true
+      }, {
+        responseType: 'blob'
+      });
+
+      // Создаем URL для скачивания файла
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Получаем имя файла из заголовков или используем дефолтное
+      const contentDisposition = response.headers['content-disposition'];
+      let fileName = 'Все_заявки_согласованные_в_оплату.xlsx';
+      
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
+        if (fileNameMatch && fileNameMatch.length === 2) {
+          fileName = fileNameMatch[1];
+        }
+      }
+      
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+    } catch (err: any) {
+      console.error('Ошибка экспорта всех заявок:', err);
+      alert(err.response?.data?.detail || 'Ошибка экспорта всех заявок');
+    }
+  };
+
+  // Получаем колонки для таблицы
+  const tableColumns = getTableColumns();
+
+  // Получаем роль пользователя из localStorage
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const userRole = user.role || 'employee';
+
+  if (loading) {
+    return <div className="loading">Загрузка заявок...</div>;
+  }
+
+  if (error) {
+    return <div className="error">Ошибка: {error}</div>;
+  }
+
+  return (
+    <div className="treasury-approved">
+      <div className="page-header">
+        <h1>Согласовано в оплату</h1>
+        <p className="page-description">
+          Заявки, согласованные заместителем генерального директора для оплаты
+        </p>
+      </div>
+
+      {/* Комментарий заместителя */}
+      {deputyComment && (
+        <div className="deputy-comment-section">
+          <h3>Комментарий заместителя:</h3>
+          <div className="comment-box">
+            <p>{deputyComment}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Панель действий */}
+      <div className="actions-section">
+        <div className="selection-info">
+          Выбрано заявок: {selectedRows.length} из {requests.length}
+        </div>
+        
+        <div className="action-buttons">
+          <button 
+            onClick={handleExportToExcel}
+            disabled={selectedRows.length === 0}
+            className="btn btn-primary"
+          >
+            Экспорт выбранных в Excel
+          </button>
+          
+          <button 
+            onClick={handleExportAll}
+            disabled={requests.length === 0}
+            className="btn btn-secondary"
+          >
+            Экспорт всех в Excel
+          </button>
+        </div>
+      </div>
+
+      {/* Таблица заявок */}
+      <div className="table-container">
+        <DataTable
+          columns={tableColumns}
+          data={requests}
+          selectedRows={selectedRows}
+          onRowSelect={handleRowSelect}
+          onSelectAll={handleSelectAll}
+          currentUserRole={userRole}
+          columnSettings={columnSettings}
+        />
+      </div>
+
+      {/* Информация о заявках */}
+      {requests.length > 0 && (
+        <div className="requests-summary">
+          <h3>Сводная информация:</h3>
+          <p>Всего заявок: {requests.length}</p>
+          <p>
+            Общая сумма: {requests.reduce((sum, req) => sum + (req.amount || 0), 0).toFixed(2)} руб.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default TreasuryApproved;

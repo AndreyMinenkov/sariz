@@ -1,0 +1,288 @@
+/* Стили для страницы уведомлений - в едином стиле с приложением */
+
+.notifications-page {
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.notifications-header {
+  background-color: #FFFFFF;
+  border: 1px solid #DDDDDD;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.notifications-header h1 {
+  font-size: 28px;
+  font-weight: 600;
+  color: #333333;
+  margin: 0;
+}
+
+.notifications-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.unread-count {
+  background-color: #0078D4;
+  color: #FFFFFF;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.mark-all-read-btn,
+.back-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.mark-all-read-btn {
+  background-color: #28a745;
+  color: white;
+}
+
+.mark-all-read-btn:hover {
+  background-color: #218838;
+  transform: translateY(-1px);
+}
+
+.back-btn {
+  background-color: #6c757d;
+  color: white;
+}
+
+.back-btn:hover {
+  background-color: #5a6268;
+  transform: translateY(-1px);
+}
+
+.loading,
+.error,
+.no-notifications {
+  background-color: #FFFFFF;
+  border: 1px solid #DDDDDD;
+  border-radius: 8px;
+  padding: 40px;
+  text-align: center;
+  font-size: 16px;
+  color: #666666;
+}
+
+.error {
+  color: #dc3545;
+  border-color: #f5c6cb;
+  background-color: #f8d7da;
+}
+
+.no-notifications {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notification-card {
+  background-color: #FFFFFF;
+  border: 1px solid #DDDDDD;
+  border-radius: 8px;
+  padding: 20px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.notification-card.unread {
+  border-left: 4px solid #0078D4;
+  background-color: #F0F7FF;
+}
+
+.notification-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.notification-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.notification-icon {
+  font-size: 24px;
+  min-width: 40px;
+  text-align: center;
+  padding-top: 4px;
+}
+
+.notification-title-section {
+  flex: 1;
+}
+
+.notification-title {
+  margin: 0 0 8px 0;
+  color: #333333;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.notification-type {
+  display: inline-block;
+  padding: 4px 12px;
+  background-color: #E9ECEF;
+  color: #495057;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 8px;
+  margin-bottom: 8px;
+}
+
+.notification-time {
+  color: #6C757D;
+  font-size: 13px;
+}
+
+.notification-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mark-read-btn {
+  padding: 6px 12px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color 0.2s ease;
+}
+
+.mark-read-btn:hover {
+  background-color: #218838;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.status-dot.unread {
+  background-color: #0078D4;
+}
+
+.status-dot.read {
+  background-color: #6C757D;
+  opacity: 0.5;
+}
+
+.notification-body {
+  padding-left: 56px; /* Align with icon */
+}
+
+.notification-message {
+  margin: 0 0 16px 0;
+  color: #555555;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.notification-data {
+  background-color: #F8F9FA;
+  border-radius: 6px;
+  padding: 16px;
+  border: 1px solid #DEE2E6;
+  margin-top: 12px;
+}
+
+.notification-data p {
+  margin: 0 0 8px 0;
+  font-weight: 600;
+  color: #495057;
+  font-size: 14px;
+}
+
+.notification-data ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #6C757D;
+  font-size: 13px;
+}
+
+.notification-data li {
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.notification-data li:last-child {
+  margin-bottom: 0;
+}
+
+/* Бейдж для непрочитанных уведомлений */
+.notification-card.unread::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  background-color: #0078D4;
+  border-radius: 50%;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .notifications-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  .notifications-stats {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  
+  .notification-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .notification-actions {
+    align-self: flex-start;
+    margin-top: 8px;
+  }
+  
+  .notification-body {
+    padding-left: 0;
+    margin-top: 12px;
+  }
+  
+  .notification-card.unread::before {
+    top: 20px;
+    left: 20px;
+    transform: none;
+  }
+}

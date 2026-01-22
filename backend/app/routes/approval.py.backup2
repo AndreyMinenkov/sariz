@@ -1,0 +1,261 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List
+import uuid
+from datetime import datetime
+from pydantic import BaseModel
+from typing import Optional as Opt
+
+from app.database import get_db
+from app.models import ApprovalProcess, Request, User, TreasuryNotification
+from app.schemas import ApprovalProcessCreate, ApprovalProcessResponse, Category, RequestResponse
+from app.auth import get_current_user, require_deputy_director
+
+router = APIRouter()
+
+# Создаем схему для ответа с процессами согласования
+class ApprovalProcessResponseModel(BaseModel):
+    id: uuid.UUID
+    deputy_id: uuid.UUID
+    category: str
+    comment: str
+    status: str
+    request_ids: List[uuid.UUID]
+    created_at: datetime
+    approved_at: Opt[datetime]
+    
+    class Config:
+        from_attributes = True
+
+@router.get("/pending", response_model=List[RequestResponse])
+async def get_pending_requests(
+    category: Category = None,
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение заявок, ожидающих согласования
+    """
+    query = db.query(Request).filter(Request.status == "pending")
+    
+    if category:
+        query = query.filter(Request.category == category)
+    
+    # Группировка по категориям для заместителя ГД
+    requests = query.order_by(Request.category, Request.created_at).all()
+    
+    return requests
+
+@router.get("/processes", response_model=List[ApprovalProcessResponseModel])
+async def get_approval_processes(
+    skip: int = 0,
+    limit: int = 50,
+    status: str = None,
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение списка процессов согласования
+    """
+    query = db.query(ApprovalProcess).filter(
+        ApprovalProcess.deputy_id == current_user.id
+    )
+    
+    if status:
+        query = query.filter(ApprovalProcess.status == status)
+    
+    processes = query.order_by(ApprovalProcess.created_at.desc()).offset(skip).limit(limit).all()
+    
+    return processes
+
+@router.post("/processes", response_model=ApprovalProcessResponseModel)
+async def create_approval_process(
+    process_data: ApprovalProcessCreate,
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Создание нового процесса согласования
+    """
+    # Проверка, что все заявки существуют и имеют статус "pending"
+    requests = db.query(Request).filter(
+        Request.id.in_(process_data.request_ids),
+        Request.status == "pending"
+    ).all()
+    
+    if len(requests) != len(process_data.request_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Некоторые заявки не найдены или не ожидают согласования"
+        )
+    
+    # Проверка, что все заявки относятся к одной категории
+    categories = set([r.category for r in requests])
+    if len(categories) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Заявки должны относиться к одной категории"
+        )
+    
+    # Создание процесса согласования
+    db_process = ApprovalProcess(
+        deputy_id=current_user.id,
+        category=process_data.category,
+        comment=process_data.comment,
+        request_ids=process_data.request_ids,
+        status="pending"
+    )
+    
+    db.add(db_process)
+    db.commit()
+    db.refresh(db_process)
+    
+    return db_process
+
+@router.post("/processes/{process_id}/approve", response_model=ApprovalProcessResponseModel)
+async def approve_process(
+    process_id: uuid.UUID,
+    comment: str,
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Согласование заявок и отправка в казначейство
+    """
+    # Находим процесс согласования
+    process = db.query(ApprovalProcess).filter(
+        ApprovalProcess.id == process_id,
+        ApprovalProcess.deputy_id == current_user.id,
+        ApprovalProcess.status == "pending"
+    ).first()
+    
+    if not process:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Процесс согласования не найден"
+        )
+    
+    # Обновляем статус заявок
+    requests = db.query(Request).filter(Request.id.in_(process.request_ids)).all()
+    
+    total_amount = 0
+    for request in requests:
+        request.status = "for_payment"
+        request.approval_process_id = process.id
+        request.updated_at = datetime.utcnow()
+        
+        # Подсчет общей суммы
+        total_amount += request.amount
+    
+    # Обновляем процесс согласования
+    process.comment = comment
+    process.status = "approved"
+    process.approved_at = datetime.utcnow()
+    
+    # Создаем уведомление для казначейства
+    notification = TreasuryNotification(
+        approval_process_id=process.id,
+        category=process.category,
+        deputy_name=current_user.full_name,
+        comment=process.comment,
+        request_count=len(process.request_ids),
+        total_amount=total_amount,
+        is_read=False
+    )
+    
+    db.add(notification)
+    db.commit()
+    db.refresh(process)
+    
+    return process
+
+@router.post("/processes/{process_id}/reject")
+async def reject_process(
+    process_id: uuid.UUID,
+    comment: str,
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Отклонение заявок
+    """
+    # Находим процесс согласования
+    process = db.query(ApprovalProcess).filter(
+        ApprovalProcess.id == process_id,
+        ApprovalProcess.deputy_id == current_user.id,
+        ApprovalProcess.status == "pending"
+    ).first()
+    
+    if not process:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Процесс согласования не найден"
+        )
+    
+    # Обновляем статус заявок
+    requests = db.query(Request).filter(Request.id.in_(process.request_ids)).all()
+    
+    for request in requests:
+        request.status = "rejected"
+        request.updated_at = datetime.utcnow()
+    
+    # Обновляем процесс согласования
+    process.comment = comment
+    process.status = "rejected"
+    process.approved_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {"message": "Заявки отклонены", "count": len(requests)}
+
+@router.get("/statistics")
+async def get_approval_statistics(
+    start_date: str = None,
+    end_date: str = None,
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение статистики по согласованным заявкам
+    """
+    # Базовый запрос для процессов согласования пользователя
+    query = db.query(ApprovalProcess).filter(
+        ApprovalProcess.deputy_id == current_user.id,
+        ApprovalProcess.status == "approved"
+    )
+    
+    if start_date:
+        query = query.filter(ApprovalProcess.approved_at >= start_date)
+    
+    if end_date:
+        query = query.filter(ApprovalProcess.approved_at <= end_date)
+    
+    processes = query.all()
+    
+    # Агрегация статистики
+    statistics = {
+        "total_processes": len(processes),
+        "total_requests": 0,
+        "total_amount": 0,
+        "by_category": {}
+    }
+    
+    for process in processes:
+        statistics["total_requests"] += len(process.request_ids)
+        
+        # Подсчет суммы для этого процесса
+        requests = db.query(Request).filter(Request.id.in_(process.request_ids)).all()
+        process_amount = sum([r.amount for r in requests])
+        statistics["total_amount"] += process_amount
+        
+        # Статистика по категориям
+        if process.category not in statistics["by_category"]:
+            statistics["by_category"][process.category] = {
+                "count": 0,
+                "amount": 0
+            }
+        
+        statistics["by_category"][process.category]["count"] += 1
+        statistics["by_category"][process.category]["amount"] += process_amount
+    
+    return statistics

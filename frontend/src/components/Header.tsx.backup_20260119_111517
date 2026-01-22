@@ -1,0 +1,245 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { FaBell, FaCog, FaUser } from 'react-icons/fa';
+import { getTableColumns } from '../config/tableColumns';
+import { useColumnSettings } from '../contexts/ColumnSettingsContext';
+import ChangePasswordModal from './ChangePasswordModal';
+import UserGuideModal from './UserGuideModal';
+import axios from 'axios';
+import './Header.css';
+
+interface HeaderProps {
+  userName: string;
+  userRole: string;
+  onLogout: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ userName, userRole, onLogout }) => {
+  const [showSettings, setShowSettings] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [showUserGuideModal, setShowUserGuideModal] = useState(false);
+  const [allColumns, setAllColumns] = useState<any[]>([]);
+  const { settings, updateSetting } = useColumnSettings();
+  const settingsRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const settingsBtnRef = useRef<HTMLDivElement>(null);
+  const profileBtnRef = useRef<HTMLDivElement>(null);
+
+  // Создаем инстанс axios для запросов
+  const api = axios.create({
+    baseURL: '/api',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  // Интерсептор для добавления токена
+  api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  });
+
+  // Загружаем список столбцов при монтировании
+  useEffect(() => {
+    const columns = getTableColumns();
+    setAllColumns(columns);
+  }, []);
+
+  const getRoleName = (role: string) => {
+    switch (role) {
+      case 'employee': return 'Сотрудник';
+      case 'deputy_director': return 'Заместитель ГД';
+      case 'treasury': return 'Казначейство';
+      default: return role;
+    }
+  };
+
+  // Закрытие меню при клике вне его
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showSettings &&
+          settingsRef.current &&
+          settingsBtnRef.current &&
+          !settingsRef.current.contains(event.target as Node) &&
+          !settingsBtnRef.current.contains(event.target as Node)) {
+        setShowSettings(false);
+      }
+
+      if (showProfile &&
+          profileRef.current &&
+          profileBtnRef.current &&
+          !profileRef.current.contains(event.target as Node) &&
+          !profileBtnRef.current.contains(event.target as Node)) {
+        setShowProfile(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showSettings, showProfile]);
+
+  const handleSettingsClick = () => {
+    setShowSettings(!showSettings);
+    if (showProfile) setShowProfile(false);
+  };
+
+  const handleProfileClick = () => {
+    setShowProfile(!showProfile);
+    if (showSettings) setShowSettings(false);
+  };
+
+  const handleColumnToggle = (columnId: string) => {
+    const newVisible = !(settings[columnId] !== false);
+    updateSetting(columnId, newVisible);
+  };
+
+  const handleChangePasswordClick = () => {
+    setShowProfile(false);
+    setShowChangePasswordModal(true);
+  };
+
+  const handleUserGuideClick = () => {
+    setShowProfile(false);
+    setShowUserGuideModal(true);
+  };
+
+  const handleChangePasswordSubmit = async (oldPassword: string, newPassword: string) => {
+    try {
+      const response = await api.post('/auth/change-password', {
+        old_password: oldPassword,
+        new_password: newPassword
+      });
+
+      if (response.status === 200) {
+        // Успешно
+      } else {
+        throw new Error(response.data?.detail || 'Ошибка при смене пароля');
+      }
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        throw new Error('Неверный текущий пароль');
+      } else if (error.response?.status === 400) {
+        throw new Error(error.response.data?.detail || 'Ошибка валидации');
+      } else {
+        throw new Error('Ошибка сервера. Попробуйте позже');
+      }
+    }
+  };
+
+  // Фильтруем столбцы для текущей роли пользователя
+  const visibleColumnsForRole = allColumns.filter(col =>
+    col.visibleForRoles.includes('all') || col.visibleForRoles.includes(userRole)
+  );
+
+  return (
+    <>
+      <header className="header">
+        <div className="logo" onClick={() => window.location.href = '/'}>
+          САРИЗ
+        </div>
+
+        <div className="header-spacer" />
+
+        <div className="header-right">
+          <div className="header-icons">
+            <div className="notification-icon">
+              <FaBell size={20} color="#666666" />
+              <div className="notification-badge">3</div>
+            </div>
+
+            <div
+              className="settings-icon"
+              ref={settingsBtnRef}
+              onClick={handleSettingsClick}
+            >
+              <FaCog size={20} color="#666666" />
+            </div>
+
+            <div
+              className="profile-section"
+              ref={profileBtnRef}
+              onClick={handleProfileClick}
+            >
+              <FaUser size={20} color="#666666" />
+              <span className="profile-name">{userName}</span>
+            </div>
+          </div>
+
+          <button className="logout-button" onClick={onLogout}>
+            Выйти
+          </button>
+        </div>
+      </header>
+
+      {/* Выпадающее меню настроек */}
+      {showSettings && (
+        <>
+          <div className="menu-overlay" onClick={() => setShowSettings(false)} />
+          <div className="settings-dropdown" ref={settingsRef}>
+            <div style={{ padding: '8px 12px', fontSize: '12px', color: '#666666', borderBottom: '1px solid #DDDDDD' }}>
+              Настройка видимости столбцов:
+            </div>
+            {visibleColumnsForRole.map(column => (
+              <div className="dropdown-item" key={column.id}>
+                <input 
+                  type="checkbox" 
+                  id={`col_${column.id}`}
+                  checked={settings[column.id] !== false}
+                  onChange={() => handleColumnToggle(column.id)}
+                />
+                <label htmlFor={`col_${column.id}`}>{column.name}</label>
+              </div>
+            ))}
+            <div className="divider" />
+            <div className="dropdown-item contact">
+              Контакты поддержки: Minenkov.a@s-int.ru
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Выпадающее меню профиля */}
+      {showProfile && (
+        <>
+          <div className="menu-overlay" onClick={() => setShowProfile(false)} />
+          <div className="profile-dropdown" ref={profileRef}>
+            <div className="dropdown-item info">
+              {userName} ({getRoleName(userRole)})
+            </div>
+            <div className="dropdown-item" onClick={handleChangePasswordClick}>
+              Сменить пароль
+            </div>
+            <div className="dropdown-item" onClick={handleUserGuideClick}>
+              Руководство пользователя
+            </div>
+            <div className="divider" />
+            <div className="dropdown-item contact">
+              Контакты поддержки: Minenkov.a@s-int.ru
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Модальное окно смены пароля */}
+      <ChangePasswordModal
+        isOpen={showChangePasswordModal}
+        onClose={() => setShowChangePasswordModal(false)}
+        onSubmit={handleChangePasswordSubmit}
+      />
+
+      {/* Модальное окно руководства пользователя */}
+      <UserGuideModal
+        isOpen={showUserGuideModal}
+        onClose={() => setShowUserGuideModal(false)}
+        userRole={userRole}
+      />
+    </>
+  );
+};
+
+export default Header;

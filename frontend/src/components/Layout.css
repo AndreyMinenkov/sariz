@@ -1,0 +1,52 @@
+/* Стили макета согласно ТЗ (раздел 2.1) */
+
+.layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: #FFFFFF;
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  margin-top: 60px; /* Высота хедера */
+}
+
+.sidebar-container {
+  width: 250px;
+  position: fixed;
+  left: 0;
+  top: 60px; /* Под хедером */
+  bottom: 0;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.work-area {
+  flex: 1;
+  margin-left: 250px; /* Отступ для сайдбара */
+  padding: 16px; /* Отступы рабочей области согласно ТЗ */
+  background-color: #FFFFFF;
+  min-height: calc(100vh - 60px);
+  overflow-y: auto;
+}
+
+/* Адаптация для мобильных устройств */
+@media (max-width: 1279px) {
+  .sidebar-container {
+    position: relative;
+    top: 0;
+    width: 100%;
+    height: auto;
+  }
+  
+  .work-area {
+    margin-left: 0;
+    width: 100%;
+  }
+  
+  .main-content {
+    flex-direction: column;
+  }
+}

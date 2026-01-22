@@ -1,0 +1,286 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List, Optional
+import uuid
+from datetime import datetime, timedelta
+from sqlalchemy import func, or_
+
+from app.database import get_db
+from app.models import User, UserNotification, Request, ApprovalProcess, Import
+from app.schemas import UserNotificationResponse, NotificationType
+from app.auth import get_current_user
+
+router = APIRouter()
+
+@router.get("/user-notifications", response_model=List[UserNotificationResponse])
+async def get_user_notifications(
+    unread_only: bool = False,
+    limit: Optional[int] = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение уведомлений текущего пользователя
+    """
+    # Упрощенная версия для тестирования
+    try:
+        query = db.query(UserNotification).filter(
+            UserNotification.user_id == current_user.id
+        )
+
+        if unread_only:
+            query = query.filter(UserNotification.is_read == False)
+
+        notifications = query.order_by(
+            UserNotification.is_read,
+            UserNotification.created_at.desc()
+        ).limit(limit).all()
+
+        return notifications
+    except Exception as e:
+        # В случае ошибки возвращаем пустой список
+        print(f"Ошибка в get_user_notifications: {e}")
+        return []
+
+@router.get("/user-notifications/count")
+async def get_unread_count(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение количества непрочитанных уведомлений
+    """
+    try:
+        count = db.query(UserNotification).filter(
+            UserNotification.user_id == current_user.id,
+            UserNotification.is_read == False
+        ).count()
+
+        return {"unread_count": count}
+    except Exception as e:
+        print(f"Ошибка в get_unread_count: {e}")
+        return {"unread_count": 0}
+
+@router.post("/user-notifications/{notification_id}/mark-read")
+async def mark_notification_read(
+    notification_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Отметка уведомления как прочитанного
+    """
+    try:
+        notification = db.query(UserNotification).filter(
+            UserNotification.id == notification_id,
+            UserNotification.user_id == current_user.id
+        ).first()
+
+        if not notification:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Уведомление не найдено"
+            )
+
+        notification.is_read = True
+        db.commit()
+
+        return {"message": "Уведомление отмечено как прочитанное"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Ошибка в mark_notification_read: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Внутренняя ошибка сервера"
+        )
+
+# Остальные функции пока не нужны для тестирования
+
+@router.get("/test-notifications", response_model=List[UserNotificationResponse])
+async def test_notifications():
+    """Тестовый маршрут для диагностики"""
+    return []
+
+# Вспомогательные функции для создания уведомлений
+def create_notification(
+    db: Session,
+    user_id: uuid.UUID,
+    notification_type: NotificationType,
+    title: str,
+    message: str,
+    data: Optional[dict] = None,
+    request_id: Optional[uuid.UUID] = None,
+    approval_process_id: Optional[uuid.UUID] = None,
+    import_id: Optional[uuid.UUID] = None
+):
+    """
+    Создание нового уведомления
+    """
+    notification = UserNotification(
+        user_id=user_id,
+        notification_type=notification_type,
+        title=title,
+        message=message,
+        data=data,
+        request_id=request_id,
+        approval_process_id=approval_process_id,
+        import_id=import_id
+    )
+
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return notification
+
+# Функции для создания специфичных уведомлений
+
+
+
+    category_name = category_names.get(category, category)
+
+    return create_notification(
+        db=db,
+        user_id=deputy_id,
+        notification_type=NotificationType.NEW_REQUESTS_FOR_APPROVAL,
+        title="Новые заявки на согласование",
+        message=f"Поступило {request_count} новых заявок в категории '{category_name}' для согласования",
+        data={
+            "request_count": request_count,
+            "category": category,
+            "category_name": category_name
+        }
+    )
+
+
+# Функции для пакетных уведомлений (оптимизированная версия)
+def create_batch_requests_notification(
+    db: Session,
+    user_id: uuid.UUID,
+    batch_type: NotificationType,
+    title: str,
+    message: str,
+    batch_data: dict
+):
+    """
+    Создание уведомления о пакете заявок
+    """
+    return create_notification(
+        db=db,
+        user_id=user_id,
+        notification_type=batch_type,
+        title=title,
+        message=message,
+        data=batch_data
+    )
+
+def create_batch_for_approval_notification(
+    db: Session,
+    deputy_id: uuid.UUID,
+    import_id: uuid.UUID,
+    request_count: int,
+    categories: List[str],
+    total_amount: float,
+    imported_by_user: User
+):
+    """
+    Создание уведомления о пакете заявок на согласование для заместителя
+    """
+    categories_str = ", ".join(categories[:3]) + (", ..." if len(categories) > 3 else "")
+    
+    return create_batch_requests_notification(
+        db=db,
+        user_id=deputy_id,
+        batch_type=NotificationType.BATCH_REQUESTS_FOR_APPROVAL,
+        title=f"Новый пакет заявок на согласование",
+        message=f"Сотрудник {imported_by_user.full_name} загрузил пакет из {request_count} заявок на сумму {total_amount:.2f} руб. Категории: {categories_str}",
+        batch_data={
+            "import_id": str(import_id),
+            "request_count": request_count,
+            "categories": categories,
+            "total_amount": total_amount,
+            "imported_by": imported_by_user.full_name,
+            "imported_by_id": str(imported_by_user.id)
+        }
+    )
+
+def create_batch_processed_notification_for_employee(
+    db: Session,
+    employee_id: uuid.UUID,
+    deputy_name: str,
+    approved_count: int,
+    rejected_count: int,
+    total_amount: float,
+    import_id: uuid.UUID = None,
+    comment: str = ""
+):
+    """
+    Создание уведомления для сотрудника о результате обработки пакета заявок
+    """
+    if approved_count > 0 and rejected_count == 0:
+        # Все заявки согласованы
+        batch_type = NotificationType.BATCH_REQUESTS_APPROVED
+        title = "Пакет заявок согласован"
+        status_text = "согласованы"
+    elif approved_count == 0 and rejected_count > 0:
+        # Все заявки отклонены
+        batch_type = NotificationType.BATCH_REQUESTS_REJECTED
+        title = "Пакет заявок отклонен"
+        status_text = "отклонены"
+    else:
+        # Смешанный результат
+        batch_type = NotificationType.BATCH_REQUESTS_PROCESSED
+        title = "Пакет заявок обработан"
+        status_text = f"согласованы {approved_count}, отклонены {rejected_count}"
+    
+    message = f"Заместитель {deputy_name} обработал ваш пакет заявок: {status_text}. "
+    if approved_count > 0:
+        message += f"Сумма согласованных заявок: {total_amount:.2f} руб. "
+    if comment:
+        message += f"Комментарий: {comment[:100]}{'...' if len(comment) > 100 else ''}"
+    
+    batch_data = {
+        "deputy_name": deputy_name,
+        "approved_count": approved_count,
+        "rejected_count": rejected_count,
+        "total_amount": total_amount,
+        "import_id": str(import_id) if import_id else None,
+        "comment": comment
+    }
+    
+    return create_batch_requests_notification(
+        db=db,
+        user_id=employee_id,
+        batch_type=batch_type,
+        title=title,
+        message=message,
+        batch_data=batch_data
+    )
+
+def create_batch_treasury_notification_for_deputy(
+    db: Session,
+    deputy_id: uuid.UUID,
+    treasury_user: User,
+    approved_count: int,
+    total_amount: float,
+    import_id: uuid.UUID = None,
+    comment: str = ""
+):
+    """
+    Создание уведомления для заместителя о том, что казначейство получило уведомление о пакете
+    """
+    return create_batch_requests_notification(
+        db=db,
+        user_id=deputy_id,
+        batch_type=NotificationType.TREASURY_NOTIFICATION,
+        title="Пакет заявок передан в казначейство",
+        message=f"Казначейство ({treasury_user.full_name}) получило уведомление о {approved_count} согласованных заявках на сумму {total_amount:.2f} руб.",
+        batch_data={
+            "treasury_user": treasury_user.full_name,
+            "approved_count": approved_count,
+            "total_amount": total_amount,
+            "import_id": str(import_id) if import_id else None,
+            "comment": comment
+        }
+    )

@@ -1,0 +1,204 @@
+/* Стили для Dashboard */
+
+.dashboard {
+  padding: 16px;
+}
+
+.dashboard-header {
+  background-color: #FFFFFF;
+  border: 1px solid #DDDDDD;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dashboard-header h1 {
+  font-size: 28px;
+  font-weight: 600;
+  color: #333333;
+  margin: 0;
+}
+
+.role-badge {
+  background-color: #0078D4;
+  color: #FFFFFF;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.quick-actions {
+  background-color: #FFFFFF;
+  border: 1px solid #DDDDDD;
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.quick-actions h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333333;
+  margin: 0 0 20px 0;
+}
+
+.actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+.action-card {
+  background-color: #F5F5F5;
+  border: 1px solid #DDDDDD;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.action-card:hover {
+  background-color: #E3F2FD;
+  border-color: #0078D4;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 120, 212, 0.1);
+}
+
+.action-icon {
+  width: 40px;
+  height: 40px;
+  background-color: #0078D4;
+  color: #FFFFFF;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.action-label {
+  flex-grow: 1;
+  font-size: 16px;
+  font-weight: 500;
+  color: #333333;
+}
+
+.action-arrow {
+  color: #666666;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.system-info {
+  background-color: #FFFFFF;
+  border: 1px solid #DDDDDD;
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.system-info h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333333;
+  margin: 0 0 20px 0;
+}
+
+.info-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.info-card {
+  background-color: #F8F8F8;
+  border: 1px solid #DDDDDD;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.info-title {
+  font-size: 14px;
+  color: #666666;
+  margin-bottom: 8px;
+}
+
+.info-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #333333;
+}
+
+.info-value.status-active {
+  color: #107C10;
+}
+
+/* Адаптация для мобильных устройств */
+@media (max-width: 1279px) {
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  .actions-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+  
+  .info-cards {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .dashboard {
+    padding: 12px;
+  }
+  
+  .dashboard-header h1 {
+    font-size: 24px;
+  }
+  
+  .dashboard-header,
+  .quick-actions,
+  .system-info {
+    padding: 16px;
+  }
+  
+  .actions-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .info-cards {
+    grid-template-columns: 1fr;
+  }
+  
+  .action-card {
+    padding: 16px;
+  }
+  
+  .action-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+  
+  .action-label {
+    font-size: 15px;
+  }
+}

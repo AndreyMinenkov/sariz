@@ -1,0 +1,240 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List, Optional
+import uuid
+from datetime import datetime, timedelta
+from sqlalchemy import func, or_
+
+from app.database import get_db
+from app.models import User, UserNotification, Request, ApprovalProcess, Import
+from app.schemas import UserNotificationResponse, NotificationType
+from app.auth import get_current_user
+
+router = APIRouter()
+
+@router.get("/user-notifications", response_model=List[UserNotificationResponse])
+async def get_user_notifications(
+    unread_only: bool = False,
+    limit: Optional[int] = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение уведомлений текущего пользователя
+    """
+    # Упрощенная версия для тестирования
+    try:
+        query = db.query(UserNotification).filter(
+            UserNotification.user_id == current_user.id
+        )
+
+        if unread_only:
+            query = query.filter(UserNotification.is_read == False)
+
+        notifications = query.order_by(
+            UserNotification.is_read,
+            UserNotification.created_at.desc()
+        ).limit(limit).all()
+
+        return notifications
+    except Exception as e:
+        # В случае ошибки возвращаем пустой список
+        print(f"Ошибка в get_user_notifications: {e}")
+        return []
+
+@router.get("/user-notifications/count")
+async def get_unread_count(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение количества непрочитанных уведомлений
+    """
+    try:
+        count = db.query(UserNotification).filter(
+            UserNotification.user_id == current_user.id,
+            UserNotification.is_read == False
+        ).count()
+
+        return {"unread_count": count}
+    except Exception as e:
+        print(f"Ошибка в get_unread_count: {e}")
+        return {"unread_count": 0}
+
+@router.post("/user-notifications/{notification_id}/mark-read")
+async def mark_notification_read(
+    notification_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Отметка уведомления как прочитанного
+    """
+    try:
+        notification = db.query(UserNotification).filter(
+            UserNotification.id == notification_id,
+            UserNotification.user_id == current_user.id
+        ).first()
+
+        if not notification:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Уведомление не найдено"
+            )
+
+        notification.is_read = True
+        db.commit()
+
+        return {"message": "Уведомление отмечено как прочитанное"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Ошибка в mark_notification_read: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Внутренняя ошибка сервера"
+        )
+
+# Остальные функции пока не нужны для тестирования
+
+@router.get("/test-notifications", response_model=List[UserNotificationResponse])
+async def test_notifications():
+    """Тестовый маршрут для диагностики"""
+    return []
+
+# Вспомогательные функции для создания уведомлений
+def create_notification(
+    db: Session,
+    user_id: uuid.UUID,
+    notification_type: NotificationType,
+    title: str,
+    message: str,
+    data: Optional[dict] = None,
+    request_id: Optional[uuid.UUID] = None,
+    approval_process_id: Optional[uuid.UUID] = None,
+    import_id: Optional[uuid.UUID] = None
+):
+    """
+    Создание нового уведомления
+    """
+    notification = UserNotification(
+        user_id=user_id,
+        notification_type=notification_type,
+        title=title,
+        message=message,
+        data=data,
+        request_id=request_id,
+        approval_process_id=approval_process_id,
+        import_id=import_id
+    )
+
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return notification
+
+# Функции для создания специфичных уведомлений
+def create_request_approved_notification(
+    db: Session,
+    request: Request,
+    deputy_name: str
+):
+    """
+    Создание уведомления о согласовании заявки для сотрудника
+    """
+    return create_notification(
+        db=db,
+        user_id=request.created_by,
+        notification_type=NotificationType.REQUEST_APPROVED,
+        title="Заявка согласована",
+        message=f"Ваша заявка №{request.request_number} согласована заместителем {deputy_name}",
+        data={
+            "request_number": request.request_number,
+            "amount": request.amount,
+            "deputy_name": deputy_name,
+            "request_id": str(request.id)
+        },
+        request_id=request.id
+    )
+
+def create_request_rejected_notification(
+    db: Session,
+    request: Request,
+    deputy_name: str,
+    comment: str
+):
+    """
+    Создание уведомления об отклонении заявки для сотрудника
+    """
+    return create_notification(
+        db=db,
+        user_id=request.created_by,
+        notification_type=NotificationType.REQUEST_REJECTED,
+        title="Заявка отклонена",
+        message=f"Ваша заявка №{request.request_number} отклонена заместителем {deputy_name}. Комментарий: {comment[:100]}...",
+        data={
+            "request_number": request.request_number,
+            "amount": request.amount,
+            "deputy_name": deputy_name,
+            "comment": comment,
+            "request_id": str(request.id)
+        },
+        request_id=request.id
+    )
+
+def create_new_requests_notification(
+    db: Session,
+    deputy_id: uuid.UUID,
+    request_count: int,
+    category: str
+):
+    """
+    Создание уведомления о новых заявках для заместителя
+    """
+    category_names = {
+        "subdivisions": "Подразделения",
+        "non_transferable": "Непереносимые оплаты",
+        "schedules": "Графики",
+        "living_expenses": "Питание и проживание"
+    }
+
+    category_name = category_names.get(category, category)
+
+    return create_notification(
+        db=db,
+        user_id=deputy_id,
+        notification_type=NotificationType.NEW_REQUESTS_FOR_APPROVAL,
+        title="Новые заявки на согласование",
+        message=f"Поступило {request_count} новых заявок в категории '{category_name}' для согласования",
+        data={
+            "request_count": request_count,
+            "category": category,
+            "category_name": category_name
+        }
+    )
+
+def create_treasury_notification_for_deputy(
+    db: Session,
+    deputy_id: uuid.UUID,
+    treasury_user: User,
+    request_count: int,
+    total_amount: float,
+    comment: str
+):
+    """
+    Создание уведомления для заместителя о том, что казначейство получило его уведомление
+    """
+    return create_notification(
+        db=db,
+        user_id=deputy_id,
+        notification_type=NotificationType.TREASURY_NOTIFICATION,
+        title="Уведомление получено казначейством",
+        message=f"Казначейство ({treasury_user.full_name}) получило ваше уведомление о {request_count} заявках на сумму {total_amount:.2f} руб.",
+        data={
+            "treasury_user": treasury_user.full_name,
+            "request_count": request_count,
+            "total_amount": total_amount,
+            "comment": comment
+        }
+    )

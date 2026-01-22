@@ -1,0 +1,213 @@
+from pydantic import BaseModel, EmailStr, Field, validator
+from typing import Optional, List, Dict
+from datetime import datetime, date
+from uuid import UUID
+from enum import Enum
+
+class UserRole(str, Enum):
+    EMPLOYEE = "employee"
+    DEPUTY_DIRECTOR = "deputy_director"
+    TREASURY = "treasury"
+
+class RequestStatus(str, Enum):
+    DRAFT = "draft"
+    PENDING = "pending"
+    APPROVED_FOR_PAYMENT = "approved_for_payment"
+    FOR_PAYMENT = "for_payment"
+    REJECTED = "rejected"
+
+class ImportType(str, Enum):
+    REGULAR = "regular"
+    NON_TRANSFERABLE = "non_transferable"
+    SCHEDULES = "schedules"
+    APPROVED_FOR_PAYMENT = "approved_for_payment"
+
+class Category(str, Enum):
+    SUBDIVISIONS = "subdivisions"
+    NON_TRANSFERABLE = "non_transferable"
+    SCHEDULES = "schedules"
+    LIVING_EXPENSES = "living_expenses"
+
+# Схемы для пользователей
+class UserBase(BaseModel):
+    username: str
+    email: EmailStr
+    full_name: str
+    role: UserRole
+    organization: str
+    department: str
+    is_active: bool = True
+
+class UserCreate(UserBase):
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class UserResponse(UserBase):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: str
+    role: str
+
+# Схемы для заявок
+class RequestBase(BaseModel):
+    article: str
+    amount: float
+    recipient: str
+    request_number: str
+    request_date: datetime
+    organization: str
+    department: str
+    priority: Optional[int] = Field(None, ge=1, le=5)
+    purpose: str
+    payment_date: Optional[date]
+    applicant: str
+    category: Category
+    import_type: ImportType = ImportType.REGULAR
+
+class RequestCreate(RequestBase):
+    pass
+
+class RequestUpdate(BaseModel):
+    status: Optional[RequestStatus] = None
+    priority: Optional[int] = Field(None, ge=1, le=5)
+    payment_date: Optional[date]
+    paid_at: Optional[date]
+
+class RequestResponse(RequestBase):
+    id: UUID
+    status: RequestStatus
+    created_by: UUID
+    approval_process_id: Optional[UUID]
+    employee_category: Optional[str]
+    treasury_import_type: Optional[str]
+    source: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+# Схемы для импортов
+class ImportBase(BaseModel):
+    file_name: str
+    file_size: int
+    payment_date: date
+    comment: Optional[str]
+    status: str
+    error_message: Optional[str]
+    imported_count: int
+    skipped_count: int
+
+class ImportCreate(ImportBase):
+    user_id: UUID
+
+class ImportResponse(ImportBase):
+    id: UUID
+    user_id: UUID
+    created_at: datetime
+
+# Схемы для процессов согласования
+class ApprovalProcessBase(BaseModel):
+    category: str
+    comment: str
+    status: str
+    request_ids: List[UUID]
+
+class ApprovalProcessCreate(ApprovalProcessBase):
+    deputy_id: UUID
+
+class ApprovalProcessResponse(ApprovalProcessBase):
+    id: UUID
+    deputy_id: UUID
+    created_at: datetime
+    approved_at: Optional[datetime]
+
+# Схемы для уведомлений казначейства
+class TreasuryNotificationBase(BaseModel):
+    category: str
+    deputy_name: str
+    comment: str
+    request_count: int
+    total_amount: float
+    is_read: bool
+
+class TreasuryNotificationCreate(TreasuryNotificationBase):
+    approval_process_id: Optional[UUID]
+
+class TreasuryNotificationResponse(TreasuryNotificationBase):
+    id: UUID
+    approval_process_id: Optional[UUID]
+    created_at: datetime
+
+# Схемы для массовых операций
+class BulkStatusUpdate(BaseModel):
+    """Схема для массового обновления статуса"""
+    request_ids: List[UUID]
+    status: RequestStatus
+
+class BulkDelete(BaseModel):
+    """Схема для массового удаления"""
+    request_ids: List[UUID]
+
+# Схемы для кабинета заместителя директора
+class CategoryStats(BaseModel):
+    count: int
+    total_amount: float
+    label: str
+
+class PivotTableFilters(BaseModel):
+    organization: Optional[str] = None
+    recipient: Optional[str] = None
+    article: Optional[str] = None
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
+
+class PivotTableRequest(BaseModel):
+    category: str = Field(..., description="Категория: pitanie_projivanie, graphs, approved_by_director, non_transferable, filialy, all")
+    filters: Optional[PivotTableFilters] = None
+
+class PivotTableRow(BaseModel):
+    type: str = Field(..., description="Тип строки: organization, recipient, total")
+    organization: Optional[str] = None
+    recipient: Optional[str] = None
+    department_amounts: Dict[str, float] = {}
+    total: float = 0
+    is_expanded: Optional[bool] = False
+
+class PivotTableTotalRow(BaseModel):
+    department_totals: Dict[str, float] = {}
+    grand_total: float = 0
+
+class PivotTableResponse(BaseModel):
+    rows: List[PivotTableRow]
+    total_row: PivotTableTotalRow
+    departments: List[str]
+    category: str
+
+class CategorySelection(BaseModel):
+    """Выбор категории"""
+    category: str
+    selected: bool = True
+
+class RecipientSelection(BaseModel):
+    """Выбор конкретного контрагента"""
+    organization: str
+    recipient: str
+    selected: bool = True
+
+class ApprovalSelection(BaseModel):
+    """Выбор заявок для согласования"""
+    selected_categories: List[CategorySelection] = Field(default_factory=list)
+    selected_recipients: List[RecipientSelection] = Field(default_factory=list)
+
+class ApprovalRequest(BaseModel):
+    """Запрос на согласование заявок"""
+    selection: ApprovalSelection
+    comment: str = Field(..., description="Комментарий для казначейства")

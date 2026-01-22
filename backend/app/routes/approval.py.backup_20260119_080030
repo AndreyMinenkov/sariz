@@ -1,0 +1,435 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import func, and_, or_
+from typing import List, Dict, Optional
+import uuid
+from datetime import datetime
+from sqlalchemy import func
+from decimal import Decimal
+
+from app.database import get_db
+from app.auth import get_current_user, require_deputy_director
+from app.models import User, Request, CategoryKeyword, ApprovalProcess, TreasuryNotification
+from app.schemas import (
+    PivotTableRequest, 
+    PivotTableResponse, 
+    ApprovalRequest,
+    CategoryStats
+)
+
+router = APIRouter()
+
+@router.get("/categories", response_model=Dict[str, CategoryStats])
+async def get_categories_stats(
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение статистики по категориям для отображения на кнопках
+    """
+    # Заявки со статусом 'pending' (на согласовании)
+    base_query = db.query(Request).filter(Request.status == 'pending')
+    
+    stats = {}
+    
+    # 1. Питание, проживание, аренда, связь
+    pitanie_count = base_query.filter(
+        Request.employee_category == 'pitanie_projivanie',
+        Request.source == 'employee'
+    ).count()
+    
+    pitanie_amount = base_query.filter(
+        Request.employee_category == 'pitanie_projivanie',
+        Request.source == 'employee'
+    ).with_entities(func.coalesce(func.sum(Request.amount), 0)).scalar() or 0
+    
+    stats['pitanie_projivanie'] = CategoryStats(
+        count=pitanie_count,
+        total_amount=float(pitanie_amount),
+        label="Питание, проживание, аренда, связь"
+    )
+    
+    # 2. Графики
+    graphs_count = base_query.filter(
+        Request.treasury_import_type == 'graphs',
+        Request.source == 'treasury'
+    ).count()
+    
+    graphs_amount = base_query.filter(
+        Request.treasury_import_type == 'graphs',
+        Request.source == 'treasury'
+    ).with_entities(func.coalesce(func.sum(Request.amount), 0)).scalar() or 0
+    
+    stats['graphs'] = CategoryStats(
+        count=graphs_count,
+        total_amount=float(graphs_amount),
+        label="Графики"
+    )
+    
+    # 3. Утверждено генеральным директором
+    approved_count = base_query.filter(
+        Request.treasury_import_type == 'approved_by_director',
+        Request.source == 'treasury'
+    ).count()
+    
+    approved_amount = base_query.filter(
+        Request.treasury_import_type == 'approved_by_director',
+        Request.source == 'treasury'
+    ).with_entities(func.coalesce(func.sum(Request.amount), 0)).scalar() or 0
+    
+    stats['approved_by_director'] = CategoryStats(
+        count=approved_count,
+        total_amount=float(approved_amount),
+        label="Утверждено генеральным директором"
+    )
+    
+    # 4. Непереносимые оплаты
+    non_transferable_count = base_query.filter(
+        Request.treasury_import_type == 'non_transferable',
+        Request.source == 'treasury'
+    ).count()
+    
+    non_transferable_amount = base_query.filter(
+        Request.treasury_import_type == 'non_transferable',
+        Request.source == 'treasury'
+    ).with_entities(func.coalesce(func.sum(Request.amount), 0)).scalar() or 0
+    
+    stats['non_transferable'] = CategoryStats(
+        count=non_transferable_count,
+        total_amount=float(non_transferable_amount),
+        label="Непереносимые оплаты"
+    )
+    
+    # 5. Филиалы
+    filialy_query = base_query.filter(
+        or_(
+            Request.employee_category == 'filialy',
+            and_(
+                Request.employee_category.is_(None),
+                Request.source == 'employee',
+                Request.treasury_import_type.is_(None)
+            )
+        )
+    )
+    
+    filialy_count = filialy_query.count()
+    filialy_amount = filialy_query.with_entities(
+        func.coalesce(func.sum(Request.amount), 0)
+    ).scalar() or 0
+    
+    stats['filialy'] = CategoryStats(
+        count=filialy_count,
+        total_amount=float(filialy_amount),
+        label="Филиалы"
+    )
+    
+    # 6. Все оплаты
+    all_count = base_query.count()
+    all_amount = base_query.with_entities(
+        func.coalesce(func.sum(Request.amount), 0)
+    ).scalar() or 0
+    
+    stats['all'] = CategoryStats(
+        count=all_count,
+        total_amount=float(all_amount),
+        label="Все оплаты"
+    )
+    
+    return stats
+
+@router.post("/pivot-table", response_model=PivotTableResponse)
+async def get_pivot_table(
+    pivot_request: PivotTableRequest,
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение данных для сводной таблицы
+    
+    Фиксированная группировка:
+    - Строки: organization -> recipient
+    - Столбцы: department
+    - Значения: amount (SUM)
+    """
+    # Базовый запрос с фильтрацией по категории
+    query = db.query(Request).filter(Request.status == 'pending')
+    
+    # Применяем фильтр категории
+    if pivot_request.category == 'pitanie_projivanie':
+        query = query.filter(
+            Request.employee_category == 'pitanie_projivanie',
+            Request.source == 'employee'
+        )
+    elif pivot_request.category == 'graphs':
+        query = query.filter(
+            Request.treasury_import_type == 'graphs',
+            Request.source == 'treasury'
+        )
+    elif pivot_request.category == 'approved_by_director':
+        query = query.filter(
+            Request.treasury_import_type == 'approved_by_director',
+            Request.source == 'treasury'
+        )
+    elif pivot_request.category == 'non_transferable':
+        query = query.filter(
+            Request.treasury_import_type == 'non_transferable',
+            Request.source == 'treasury'
+        )
+    elif pivot_request.category == 'filialy':
+        query = query.filter(
+            or_(
+                Request.employee_category == 'filialy',
+                and_(
+                    Request.employee_category.is_(None),
+                    Request.source == 'employee',
+                    Request.treasury_import_type.is_(None)
+                )
+            )
+        )
+    elif pivot_request.category == 'all':
+        # Все заявки - без дополнительных фильтров
+        pass
+    
+    # Применяем дополнительные фильтры если есть
+    if pivot_request.filters:
+        filters = pivot_request.filters
+        if filters.get('organization'):
+            query = query.filter(Request.organization.ilike(f"%{filters['organization']}%"))
+        if filters.get('recipient'):
+            query = query.filter(Request.recipient.ilike(f"%{filters['recipient']}%"))
+        if filters.get('article'):
+            query = query.filter(Request.article.ilike(f"%{filters['article']}%"))
+    
+    # Получаем все уникальные подразделения для столбцов
+    departments = db.query(Request.department).distinct().all()
+    departments = [dept[0] for dept in departments if dept[0]]
+    
+    # Получаем данные для группировки: organization -> recipient
+    # Сначала получаем все организации
+    organizations = db.query(
+        Request.organization,
+        Request.recipient,
+        Request.department,
+        func.sum(Request.amount).label('total_amount')
+    ).filter(
+        Request.id.in_([r.id for r in query.all()])
+    ).group_by(
+        Request.organization,
+        Request.recipient,
+        Request.department
+    ).all()
+    
+    # Структурируем данные для сводной таблицы
+    pivot_data = {}
+    
+    for org, recipient, dept, amount in organizations:
+        if org not in pivot_data:
+            pivot_data[org] = {
+                'organization': org,
+                'recipients': {},
+                'department_totals': {dept: 0 for dept in departments},
+                'organization_total': 0
+            }
+        
+        if recipient not in pivot_data[org]['recipients']:
+            pivot_data[org]['recipients'][recipient] = {
+                'recipient': recipient,
+                'department_amounts': {dept: 0 for dept in departments},
+                'recipient_total': 0
+            }
+        
+        # Добавляем amount в соответствующее подразделение
+        if dept:
+            pivot_data[org]['recipients'][recipient]['department_amounts'][dept] += float(amount)
+            pivot_data[org]['recipients'][recipient]['recipient_total'] += float(amount)
+            
+            pivot_data[org]['department_totals'][dept] += float(amount)
+            pivot_data[org]['organization_total'] += float(amount)
+    
+    # Преобразуем в список для ответа
+    rows = []
+    for org, org_data in pivot_data.items():
+        # Добавляем строку организации (итог)
+        rows.append({
+            'type': 'organization',
+            'organization': org,
+            'department_amounts': org_data['department_totals'],
+            'total': org_data['organization_total'],
+            'is_expanded': False
+        })
+        
+        # Добавляем строки контрагентов
+        for recipient, recipient_data in org_data['recipients'].items():
+            rows.append({
+                'type': 'recipient',
+                'organization': org,
+                'recipient': recipient,
+                'department_amounts': recipient_data['department_amounts'],
+                'total': recipient_data['recipient_total']
+            })
+    
+    # Добавляем итоговую строку
+    total_row = {
+        'type': 'total',
+        'department_totals': {},
+        'grand_total': 0
+    }
+    
+    # Вычисляем итоги по подразделениям
+    for dept in departments:
+        dept_total = sum(
+            org_data['department_totals'].get(dept, 0)
+            for org_data in pivot_data.values()
+        )
+        total_row['department_totals'][dept] = dept_total
+        total_row['grand_total'] += dept_total
+    
+    return PivotTableResponse(
+        rows=rows,
+        total_row=total_row,
+        departments=departments,
+        category=pivot_request.category
+    )
+
+@router.post("/approve")
+async def approve_requests(
+    approval_request: ApprovalRequest,
+    current_user: User = Depends(require_deputy_director),
+    db: Session = Depends(get_db)
+):
+    """
+    Массовое согласование заявок с новой логикой:
+    1. Выбранные категории целиком → все заявки категории → for_payment
+    2. Выбранные контрагенты → их заявки → for_payment  
+    3. Невыбранные заявки (из тех же категорий) → rejected
+    """
+    from sqlalchemy import and_, or_
+    
+    # Получаем все заявки со статусом pending для анализа
+    all_pending_requests = db.query(Request).filter(
+        Request.status == 'pending'
+    ).all()
+    
+    if not all_pending_requests:
+        raise HTTPException(status_code=404, detail="Нет заявок на согласовании")
+    
+    # Собираем ID заявок для согласования (for_payment)
+    approved_request_ids = set()
+    
+    # 1. Обрабатываем выбранные категории
+    for category_selection in approval_request.selection.selected_categories:
+        if category_selection.selected:
+            category = category_selection.category
+            
+            # Получаем все заявки этой категории со статусом pending
+            category_requests = get_requests_by_category(db, category, 'pending')
+            for req in category_requests:
+                approved_request_ids.add(str(req.id))
+    
+    # 2. Обрабатываем выбранных контрагентов
+    for recipient_selection in approval_request.selection.selected_recipients:
+        if recipient_selection.selected:
+            organization = recipient_selection.organization
+            recipient = recipient_selection.recipient
+            
+            # Находим заявки этого контрагента
+            recipient_requests = db.query(Request).filter(
+                Request.status == 'pending',
+                Request.organization == organization,
+                Request.recipient == recipient
+            ).all()
+            
+            for req in recipient_requests:
+                approved_request_ids.add(str(req.id))
+    
+    if not approved_request_ids:
+        raise HTTPException(status_code=400, detail="Не выбраны заявки для согласования")
+    
+    # 3. Обновляем статусы
+    # Заявки для оплаты
+    approved_count = db.query(Request).filter(
+        Request.id.in_(list(approved_request_ids)),
+        Request.status == 'pending'
+    ).update(
+        {"status": "for_payment"},
+        synchronize_session=False
+    )
+    
+    # Остальные заявки (не выбранные) отклоняем
+    rejected_count = db.query(Request).filter(
+        Request.status == 'pending',
+        ~Request.id.in_(list(approved_request_ids))
+    ).update(
+        {"status": "rejected"},
+        synchronize_session=False
+    )
+    
+    treasury_notification = TreasuryNotification(
+        id=uuid.uuid4(),
+        approval_process_id=approval_process.id,
+        category="mixed",
+        deputy_name=current_user.full_name,
+        comment=approval_request.comment,
+        request_count=approved_count,
+        total_amount=db.query(func.sum(Request.amount)).filter(
+            Request.id.in_(list(approved_request_ids))
+        ).scalar() or 0,
+        is_read=False
+    )
+    
+    db.add(treasury_notification)
+    db.commit()
+    
+    return {
+        "message": f"Успешно согласовано {approved_count} заявок, отклонено {rejected_count}",
+        "approved_count": approved_count,
+        "rejected_count": rejected_count,
+        "comment": approval_request.comment,
+        "approval_process_id": str(approval_process.id)
+    }
+
+# Вспомогательная функция для получения заявок по категории
+def get_requests_by_category(db: Session, category: str, status: str = 'pending'):
+    """
+    Получение заявок по категории для кабинета заместителя
+    """
+    from sqlalchemy import or_, and_
+    
+    query = db.query(Request).filter(Request.status == status)
+    
+    if category == 'all':
+        # Все заявки со статусом pending
+        pass
+    elif category == 'pitanie_projivanie':
+        query = query.filter(
+            Request.employee_category == 'pitanie_projivanie',
+            Request.source == 'employee'
+        )
+    elif category == 'graphs':
+        query = query.filter(
+            Request.treasury_import_type == 'graphs',
+            Request.source == 'treasury'
+        )
+    elif category == 'approved_by_director':
+        query = query.filter(
+            Request.treasury_import_type == 'approved_by_director',
+            Request.source == 'treasury'
+        )
+    elif category == 'non_transferable':
+        query = query.filter(
+            Request.treasury_import_type == 'non_transferable',
+            Request.source == 'treasury'
+        )
+    elif category == 'filialy':
+        query = query.filter(
+            or_(
+                Request.employee_category == 'filialy',
+                and_(
+                    Request.employee_category.is_(None),
+                    Request.source == 'employee',
+                    Request.treasury_import_type.is_(None)
+                )
+            )
+        )
+    
+    return query.all()
