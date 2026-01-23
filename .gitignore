@@ -60,8 +60,8 @@ uploads/
 migrations/
 
 # Backups
-*.backup
-*.bak
+*.backup*
+*.bak*
 backups/
 
 # OS
@@ -73,3 +73,6 @@ Thumbs.db
 /backend/venv/
 /frontend/node_modules/
 /frontend/dist/
+
+# Patch files
+*.patch
