@@ -273,7 +273,25 @@ class PivotTableResponse(BaseModel):
     departments: List[str]
     category: str
 
+# Схемы для согласования заявок
+class CategorySelection(BaseModel):
+    """Выбор категории"""
+    category: str
+    selected: bool = True
+
+class RecipientSelection(BaseModel):
+    """Выбор конкретного контрагента"""
+    organization: str
+    recipient: str
+    selected: bool = True
+
+class ApprovalSelection(BaseModel):
+    """Выбор заявок для согласования"""
+    selected_categories: List[CategorySelection] = Field(default_factory=list)
+    selected_recipients: List[RecipientSelection] = Field(default_factory=list)
+
 # Схема для запроса на согласование
 class ApprovalRequest(BaseModel):
-    request_ids: List[UUID]
-    comment: str
+    """Запрос на согласование заявок"""
+    selection: ApprovalSelection
+    comment: str = Field(..., description="Комментарий для казначейства")
