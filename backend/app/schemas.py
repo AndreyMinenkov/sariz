@@ -19,7 +19,7 @@ class Category(str, Enum):
     SCHEDULES = "schedules"
     LIVING_EXPENSES = "living_expenses"
     APPROVED_FOR_PAYMENT = "approved_for_payment"
-
+    TEST = "test"
 # Enum для статусов заявок
 class RequestStatus(str, Enum):
     DRAFT = "draft"
@@ -72,10 +72,24 @@ class RequestBase(BaseModel):
     purpose: str = Field(..., min_length=1)
     organization: str = Field(..., min_length=1, max_length=100)
     department: str = Field(..., min_length=1, max_length=100)
+    priority: Optional[int] = Field(None, ge=1, le=10)
+# Схемы для токенов
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    
+class TokenData(BaseModel):
+    username: str
+    role: str
+# Схема для смены пароля
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+
+
 
 class RequestCreate(RequestBase):
     category: Category
-    priority: Optional[int] = None
     payment_date: Optional[date] = None
     applicant: Optional[str] = None
     import_type: Optional[ImportType] = ImportType.REGULAR
@@ -98,16 +112,6 @@ class RequestResponse(RequestBase):
     created_at: datetime
     updated_at: datetime
 
-    @validator('category', pre=True)
-    def validate_category(cls, v):
-        # Преобразуем строковые значения из базы данных в значения enum
-        if isinstance(v, str):
-            v = v.lower()
-            # Маппинг старых значений на новые
-            if v == 'approved_for_payment':
-                return Category.APPROVED_FOR_PAYMENT
-        return v
-
     class Config:
         from_attributes = True
 
@@ -116,6 +120,8 @@ class RequestUpdate(BaseModel):
     priority: Optional[int] = None
     payment_date: Optional[date] = None
 
+# Схемы для импортов
+# Схемы для массовых операций
 class BulkStatusUpdate(BaseModel):
     request_ids: List[UUID]
     status: str
@@ -123,13 +129,12 @@ class BulkStatusUpdate(BaseModel):
 class BulkDelete(BaseModel):
     request_ids: List[UUID]
 
-# Схемы для импортов
 class ImportBase(BaseModel):
     file_name: str
     file_size: int
     payment_date: date
-    import_type: Optional[ImportType] = None
     comment: Optional[str] = None
+    import_type: Optional[ImportType] = None
 
 class ImportCreate(ImportBase):
     pass
@@ -139,8 +144,8 @@ class ImportResponse(ImportBase):
     user_id: UUID
     status: str
     error_message: Optional[str] = None
-    imported_count: int = 0
-    skipped_count: int = 0
+    imported_count: int
+    skipped_count: int
     created_at: datetime
 
     class Config:
@@ -152,6 +157,8 @@ class ApprovalProcessBase(BaseModel):
     category: str
     comment: str
     request_ids: List[UUID]
+    treasury_comment: Optional[str] = None
+    treasury_user_id: Optional[UUID] = None
 
 class ApprovalProcessCreate(ApprovalProcessBase):
     pass
@@ -204,80 +211,56 @@ class UserNotificationResponse(UserNotificationBase):
     class Config:
         from_attributes = True
 
-# Схемы для статистики
-class CategoryStats(BaseModel):
-    label: str
-    count: int
-    total_amount: float
-    category: Optional[str] = None
+# Схемы для ключевых слов категорий
+class CategoryKeywordBase(BaseModel):
+    category: str
+    keyword: str
+    weight: int = 1
 
-class DateStats(BaseModel):
-    date: date
-    count: int
-    total_amount: float
+class CategoryKeywordResponse(CategoryKeywordBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
 
-class StatusStats(BaseModel):
-    status: str
-    count: int
-    total_amount: float
+    class Config:
+        from_attributes = True
 
-# Схемы для выбора категорий
-class CategorySelection(BaseModel):
-    category: Category
+# Схема для дерева пользователей с комментариями (для левой панели казначейства)
+class UserCommentNode(BaseModel):
+    id: UUID
+    full_name: str
+    comment: Optional[str] = None  # Комментарий из импорта
+    import_id: Optional[UUID] = None
 
-# Схемы для токенов
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+class DepartmentNode(BaseModel):
+    name: str
+    users: List[UserCommentNode]
 
-class TokenData(BaseModel):
-    username: Optional[str] = None
-    role: Optional[str] = None
+class OrganizationNode(BaseModel):
+    name: str
+    departments: List[DepartmentNode]
 
-# Схема для выбора заявок на экспорт
-class ExportSelection(BaseModel):
-    request_ids: List[UUID]
-
-# Схема для пагинации
-class PaginationParams(BaseModel):
-    skip: int = 0
-    limit: int = 100
+class UserTreeResponse(BaseModel):
+    organizations: List[OrganizationNode]
 
 # Схемы для сводной таблицы
-class PivotTableFilters(BaseModel):
-    organization: Optional[str] = None
-    recipient: Optional[str] = None
-    article: Optional[str] = None
-    date_from: Optional[datetime] = None
-    date_to: Optional[datetime] = None
-
 class PivotTableRequest(BaseModel):
-    category: str = Field(..., description="Категория: pitanie_projivanie, graphs, approved_by_director, non_transferable, filialy, all")
-    filters: Optional[PivotTableFilters] = None
-
-class PivotTableRow(BaseModel):
-    type: str = Field(..., description="Тип строки: organization, recipient, total")
-    organization: Optional[str] = None
-    recipient: Optional[str] = None
-    department_amounts: Dict[str, float] = {}
-    total: float = 0
-    is_expanded: Optional[bool] = False
-
-class PivotTableTotalRow(BaseModel):
-    department_totals: Dict[str, float] = {}
-    grand_total: float = 0
+    category: str
+    filters: Optional[Dict[str, str]] = None
+    category: str
 
 class PivotTableResponse(BaseModel):
-    rows: List[PivotTableRow]
-    total_row: PivotTableTotalRow
+    rows: List[Dict[str, Any]]
     departments: List[str]
-    category: str
 
-# Схемы для согласования заявок
 class CategorySelection(BaseModel):
-    """Выбор категории"""
     category: str
-    selected: bool = True
+    selected: bool
+
+class RecipientSelection(BaseModel):
+    organization: str
+    recipient: str
+    selected: bool
 
 class RecipientSelection(BaseModel):
     """Выбор конкретного контрагента"""
@@ -290,8 +273,12 @@ class ApprovalSelection(BaseModel):
     selected_categories: List[CategorySelection] = Field(default_factory=list)
     selected_recipients: List[RecipientSelection] = Field(default_factory=list)
 
-# Схема для запроса на согласование
 class ApprovalRequest(BaseModel):
-    """Запрос на согласование заявок"""
     selection: ApprovalSelection
-    comment: str = Field(..., description="Комментарий для казначейства")
+    comment: str
+
+class CategoryStats(BaseModel):
+    label: str
+    count: int
+    total_amount: float
+    category: Optional[str] = None

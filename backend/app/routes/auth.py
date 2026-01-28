@@ -1,50 +1,26 @@
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import timedelta
-from pydantic import BaseModel
+from jose import jwt
+from passlib.context import CryptContext
 
 from app.database import get_db
 from app.models import User
-from app.schemas import UserCreate, UserLogin, UserResponse, Token
+from app.schemas import UserCreate, UserLogin, UserResponse, Token, TokenData, ChangePasswordRequest
 from app.auth import (
-    get_password_hash, verify_password, create_access_token,
-    get_current_user, security
+    verify_password,
+    get_password_hash,
+    create_access_token,
+    verify_token,
+    get_current_user,
+    
 )
 
 router = APIRouter()
 
-# Схема для смены пароля
-class ChangePasswordRequest(BaseModel):
-    old_password: str
-    new_password: str
-
-@router.post("/register", response_model=UserResponse)
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    # Проверка существования пользователя
-    existing_user = db.query(User).filter(User.username == user_data.username).first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Пользователь с таким именем уже существует"
-        )
-
-    # Создание нового пользователя
-    db_user = User(
-        username=user_data.username,
-        password_hash=get_password_hash(user_data.password),
-        full_name=user_data.full_name,
-        email=user_data.email,
-        role=user_data.role,
-        organization=user_data.organization,
-        department=user_data.department
-    )
-
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-
-    return db_user
+# Настройки для хеширования паролей
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 @router.post("/login", response_model=Token)
 async def login(user_data: UserLogin, db: Session = Depends(get_db)):
@@ -89,24 +65,10 @@ async def change_password(
     db: Session = Depends(get_db)
 ):
     # Проверка текущего пароля
-    if not verify_password(password_data.old_password, current_user.password_hash):
+    if not verify_password(password_data.current_password, current_user.password_hash):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Неверный текущий пароль"
-        )
-
-    # Проверка что новый пароль отличается от старого
-    if password_data.old_password == password_data.new_password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Новый пароль должен отличаться от старого"
-        )
-
-    # Проверка длины нового пароля
-    if len(password_data.new_password) < 6:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Новый пароль должен содержать не менее 6 символов"
         )
 
     # Обновление пароля

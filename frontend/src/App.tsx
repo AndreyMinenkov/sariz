@@ -4,14 +4,15 @@ import { ColumnSettingsProvider } from './contexts/ColumnSettingsContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import EmployeeRequests from './pages/EmployeeRequests';
 import EmployeeImport from './pages/EmployeeImport';
+import EmployeeRequests from './pages/EmployeeRequests';
 import EmployeeStatistics from './pages/EmployeeStatistics';
 import DeputyPending from './pages/DeputyPending';
 import DeputyStatistics from './pages/DeputyStatistics';
 import TreasuryApproved from './pages/TreasuryApproved';
 import TreasurySpecialImport from './pages/TreasurySpecialImport';
 import TreasuryStatistics from './pages/TreasuryStatistics';
+import TreasuryPending from './pages/TreasuryPending';
 import Notifications from './pages/Notifications';
 
 const App: React.FC = () => {
@@ -27,8 +28,8 @@ const App: React.FC = () => {
             <Route path="dashboard" element={<Dashboard />} />
 
             {/* Кабинет сотрудника */}
-            <Route path="employee/requests" element={<EmployeeRequests />} />
             <Route path="employee/import" element={<EmployeeImport />} />
+            <Route path="employee/requests" element={<EmployeeRequests />} />
             <Route path="employee/statistics" element={<EmployeeStatistics />} />
 
             {/* Кабинет заместителя ГД */}
@@ -36,6 +37,7 @@ const App: React.FC = () => {
             <Route path="deputy/statistics" element={<DeputyStatistics />} />
 
             {/* Кабинет казначейства */}
+            <Route path="treasury/pending" element={<TreasuryPending />} />
             <Route path="treasury/approved" element={<TreasuryApproved />} />
             <Route path="treasury/special-import" element={<TreasurySpecialImport />} />
             <Route path="treasury/statistics" element={<TreasuryStatistics />} />

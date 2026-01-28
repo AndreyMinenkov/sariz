@@ -27,7 +27,10 @@ def process_excel_file_optimized(file_content: bytes, max_rows: int = 500) -> Li
     for cell in worksheet[1]:  # Первая строка - заголовки
         headers.append(str(cell.value).strip() if cell.value else "")
 
-    # Логирование найденных заголовков для отладки
+    # Логирование найденных заголовков для отладки - ВЫВОДИМ В КОНСОЛЬ
+    print(f"=== EXCEL ПАРСИНГ: НАЙДЕНЫ ЗАГОЛОВКИ ===")
+    for i, header in enumerate(headers):
+        print(f"Столбец {i}: '{header}'")
     logger.debug(f"Найдены заголовки в Excel файле: {headers}")
 
     # Определяем индексы нужных столбцов
@@ -48,6 +51,7 @@ def process_excel_file_optimized(file_content: bytes, max_rows: int = 500) -> Li
     }
 
     # Логирование для отладки соответствия столбцов
+    print(f"=== EXCEL ПАРСИНГ: ПОИСК СТОЛБЦОВ ===")
     logger.debug(f"Ищем столбцы по шаблонам: {target_columns}")
     for target_name, possible_names in target_columns.items():
         found = False
@@ -61,13 +65,23 @@ def process_excel_file_optimized(file_content: bytes, max_rows: int = 500) -> Li
                     any(word in header_lower for word in possible_lower.split())):
                     column_indices[target_name] = i
                     found = True
+                    print(f"Найден столбец '{target_name}' как столбец {i}: '{header}'")
                     break
             if found:
                 break
         if not found:
+            print(f"ВНИМАНИЕ: Столбец '{target_name}' не найден! Возможные имена: {possible_names}")
             logger.warning(f"Столбец '{target_name}' не найден. Возможные имена: {possible_names}")
             # Если столбец не найден, используем -1
             column_indices[target_name] = -1
+    
+    print(f"=== EXCEL ПАРСИНГ: РЕЗУЛЬТАТЫ ===")
+    for field_name, col_index in column_indices.items():
+        if col_index >= 0:
+            print(f"{field_name}: столбец {col_index} ('{headers[col_index] if col_index < len(headers) else 'N/A'}')")
+        else:
+            print(f"{field_name}: НЕ НАЙДЕН - будет пустое значение")
+    print(f"=====================================")
 
     # Чтение данных
     for i, row in enumerate(worksheet.iter_rows(min_row=2, values_only=True), start=2):
@@ -100,13 +114,16 @@ def process_excel_file_optimized(file_content: bytes, max_rows: int = 500) -> Li
             continue
 
         data.append(row_data)
-        # Убрали ранний выход для обработки всех строк
 
     workbook.close()
 
     if not data:
         raise ValueError("Файл не содержит данных или имеет неверный формат")
 
+    print(f"=== EXCEL ПАРСИНГ: ЗАВЕРШЕНО ===")
+    print(f"Обработано строк: {len(data)}")
+    print(f"=====================================")
+    
     return data
 
 def process_excel_file(file_content: bytes, max_rows: int = 500) -> List[Dict]:

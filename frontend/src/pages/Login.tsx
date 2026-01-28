@@ -21,21 +21,19 @@ const Login: React.FC = () => {
         password
       });
 
-      const { access_token, user } = response.data;
+      const { access_token } = response.data;
       
-      // Сохраняем токен и информацию о пользователе
+      // Сохраняем токен
       localStorage.setItem('token', access_token);
-      if (user) {
-        localStorage.setItem('userRole', user.role);
-        localStorage.setItem('userName', user.full_name);
-      } else {
-        // Если бэкенд не возвращает user, определяем по username
-        let role = 'employee';
-        if (username.includes('deputy')) role = 'deputy_director';
-        if (username.includes('treasury')) role = 'treasury';
-        localStorage.setItem('userRole', role);
-        localStorage.setItem('userName', username);
-      }
+      
+      // Определяем роль по имени пользователя
+      let role = 'employee';
+      if (username.includes('deputy')) role = 'deputy_director';
+      if (username.includes('treasury')) role = 'treasury';
+      
+      localStorage.setItem('userRole', role);
+      localStorage.setItem('userName', username);
+      localStorage.setItem('username', username);
 
       // Перенаправляем на главную страницу
       navigate('/dashboard');

@@ -2,12 +2,29 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   FaUpload, FaFile, FaChartBar, FaClipboardList,
-  FaCheck, FaFileImport
+  FaCheck, FaFileImport, FaHourglassHalf
 } from 'react-icons/fa';
+import TreeNavigation from "./TreeNavigation";
 import './Sidebar.css';
+
+// Типы для узлов дерева
+interface TreeNode {
+  id: string;
+  name: string;
+  type: 'root' | 'organization' | 'department' | 'user' | 'import';
+  count: number;
+  amount: number;
+  children: TreeNode[];
+  import_id?: string;
+  user_id?: string;
+  organization?: string;
+  department?: string;
+}
 
 interface SidebarProps {
   userRole: string;
+  onNodeSelect?: (node: TreeNode) => void;
+  selectedNodeId?: string | null;
 }
 
 interface NavButton {
@@ -18,7 +35,7 @@ interface NavButton {
   path: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
+const Sidebar: React.FC<SidebarProps> = ({ userRole, onNodeSelect, selectedNodeId }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [activeButton, setActiveButton] = useState<string>('');
@@ -28,6 +45,7 @@ const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
   const pendingCount = 1;
   const paymentCount = 1;
   const approvedCount = 1;
+  const treasuryPendingCount = 1; // Новый счетчик для заявок на согласовании в казначействе
 
   // Определение кнопок навигации для каждой роли
   const employeeButtons: NavButton[] = [
@@ -73,6 +91,13 @@ const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
 
   const treasuryButtons: NavButton[] = [
     {
+      id: 'treasury_pending',
+      icon: <FaHourglassHalf size={18} />,
+      text: 'Заявки на согласовании',
+      counter: 'treasuryPendingCount',
+      path: '/treasury/pending'
+    },
+    {
       id: 'approved_for_payment',
       icon: <FaCheck size={18} />,
       text: 'Заявки',
@@ -115,6 +140,7 @@ const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
       case 'pendingCount': return pendingCount;
       case 'paymentCount': return paymentCount;
       case 'approvedCount': return approvedCount;
+      case 'treasuryPendingCount': return treasuryPendingCount;
       default: return 0;
     }
   };
@@ -135,27 +161,40 @@ const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
     navigate(button.path);
   };
 
+  // Проверяем, нужно ли показывать дерево навигации
+  const showTreeNavigation = userRole === 'treasury' && location.pathname === '/treasury/pending';
+  console.log('Sidebar: showTreeNavigation =', showTreeNavigation, 'userRole:', userRole, 'pathname:', location.pathname);
+
   return (
     <div className="sidebar">
-      {buttons.map(button => (
-        <button
-          key={button.id}
-          className={`nav-button ${activeButton === button.id ? 'active' : ''}`}
-          onClick={() => handleButtonClick(button)}
-        >
-          <div className="nav-icon">
-            {button.icon}
-          </div>
-          <div className="nav-text">
-            {button.text}
-          </div>
-          {button.counter && getCounterValue(button.counter) > 0 && (
-            <div className="nav-counter">
-              {getCounterValue(button.counter)}
+      <div className="nav-buttons-section">
+        {buttons.map(button => (
+          <button
+            key={button.id}
+            className={`nav-button ${activeButton === button.id ? 'active' : ''}`}
+            onClick={() => handleButtonClick(button)}
+          >
+            <div className="nav-icon">
+              {button.icon}
             </div>
-          )}
-        </button>
-      ))}
+            <div className="nav-text">
+              {button.text}
+            </div>
+            {button.counter && getCounterValue(button.counter) > 0 && (
+              <div className="nav-counter">
+                {getCounterValue(button.counter)}
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Компонент дерева навигации для казначейства на странице заявок на согласовании */}
+      {showTreeNavigation && onNodeSelect && (
+        <div className="imports-tree-section" >
+          <TreeNavigation onNodeSelect={onNodeSelect} selectedNodeId={selectedNodeId} />
+        </div>
+      )}
     </div>
   );
 };

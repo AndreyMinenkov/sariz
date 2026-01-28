@@ -172,33 +172,12 @@ const DeputyPending: React.FC = () => {
     setExpandedOrganizations(newExpanded);
   };
 
-  // Функция для разворачивания/сворачивания всех организаций
-  const toggleAllOrganizations = () => {
-    if (!pivotData) return;
-    
-    // Получаем все организации из данных
-    const allOrganizations = pivotData.rows
-      .filter(row => row.type === "organization")
-      .map(row => row.organization || "");
-    
-    // Если все организации уже развернуты, сворачиваем все
-    const allExpanded = allOrganizations.every(org => expandedOrganizations.has(org));
-    
-    if (allExpanded) {
-      // Сворачиваем все
-      setExpandedOrganizations(new Set());
-    } else {
-      // Разворачиваем все
-      setExpandedOrganizations(new Set(allOrganizations));
-    }
-  };
-
   // Форматирование суммы
-  const formatAmount = (amount: number) => {
+  const formatAmount = (amount: number | string) => {
     return new Intl.NumberFormat('ru-RU', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
-    }).format(amount);
+    }).format(typeof amount === "string" ? parseFloat(amount) || 0 : amount);
   };
 
   // Генерация автоматического комментария
@@ -245,20 +224,6 @@ const DeputyPending: React.FC = () => {
     selectedRecipients.filter(rec => rec.selected).length,
     [selectedRecipients]
   );
-
-  // Получаем текст для кнопки разворачивания/сворачивания всех организаций
-  const getExpandAllButtonText = () => {
-    if (!pivotData) return "Развернуть все";
-    
-    const allOrganizations = pivotData.rows
-      .filter(row => row.type === "organization")
-      .map(row => row.organization || "");
-    
-    if (allOrganizations.length === 0) return "Развернуть все";
-    
-    const allExpanded = allOrganizations.every(org => expandedOrganizations.has(org));
-    return allExpanded ? "Свернуть все" : "Развернуть все";
-  };
 
   // Обработчик согласования
   const handleApprove = async () => {
@@ -492,32 +457,21 @@ const DeputyPending: React.FC = () => {
         ) : pivotData ? (
           <div className="pivot-table-container">
             <div className="table-header">
-              <div className="table-header-top">
-                <h2>
-                  {categories[selectedCategory]?.label || "Сводная таблица"}
-                  {pivotData.departments.length > 6 && (
-                    <span style={{ fontSize: "12px", color: "#6c757d", marginLeft: "10px" }}>
-                      ({pivotData.departments.length} подразделений)
-                    </span>
-                  )}
-                </h2>
-                <div className="table-actions">
-                  <button
-                    className="expand-all-button"
-                    onClick={toggleAllOrganizations}
-                    title={getExpandAllButtonText()}
-                  >
-                    {getExpandAllButtonText()}
-                  </button>
-                </div>
-              </div>
+              <h2>
+                {categories[selectedCategory]?.label || 'Сводная таблица'}
+                {pivotData.departments.length > 6 && (
+                  <span style={{ fontSize: '12px', color: '#6c757d', marginLeft: '10px' }}>
+                    ({pivotData.departments.length} подразделений)
+                  </span>
+                )}
+              </h2>
               <div className="table-info">
-                {pivotData.rows.filter(r => r.type === "organization").length} организаций,
-                {pivotData.rows.filter(r => r.type === "recipient").length} контрагентов
+                {pivotData.rows.filter(r => r.type === 'organization').length} организаций, 
+                {pivotData.rows.filter(r => r.type === 'recipient').length} контрагентов
               </div>
             </div>
 
-            <div className="table-scroll-wrapper">
+            <div className="table-wrapper">
               <table className={tableClassName}>
                 <thead>
                   <tr>

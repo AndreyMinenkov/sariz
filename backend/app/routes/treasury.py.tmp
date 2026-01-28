@@ -1,12 +1,12 @@
 from urllib.parse import quote
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Response
+from sqlalchemy.orm import Session
 from typing import List, Optional
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Response
 from datetime import datetime, date, timedelta
 import pytz
 import openpyxl
 from io import BytesIO
-from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from pydantic import BaseModel
 
@@ -15,23 +15,6 @@ from app.models import TreasuryNotification, Request, User, Import, ApprovalProc
 from app.schemas import RequestResponse, ImportType, Category
 from app.auth import get_current_user, require_treasury
 from app.utils.excel_processor import process_excel_file
-
-from typing import Optional, List
-
-# Модель для узла дерева
-class TreeNode(BaseModel):
-    id: str
-    name: str
-    type: str  # 'root', 'organization', 'department', 'user', 'import'
-    count: int
-    amount: float
-    children: Optional[List['TreeNode']] = None
-    import_id: Optional[str] = None
-    user_id: Optional[str] = None
-    organization: Optional[str] = None
-    department: Optional[str] = None
-
-TreeNode.update_forward_refs()
 
 router = APIRouter()
 
@@ -330,7 +313,7 @@ async def special_import(
                 created_by=current_user.id,
                 import_id=db_import.id,
                 source='treasury',
-                status="pending"
+                status="draft"
             )
 
             db.add(db_request)
@@ -497,7 +480,7 @@ async def send_requests_to_approval(
     # Получаем заявки
     requests = db.query(Request).filter(
         Request.id.in_(request_data.request_ids),
-        Request.status.in_(["draft", "pending"])
+        Request.status == "draft"
     ).all()
 
     if not requests:
@@ -516,7 +499,7 @@ async def send_requests_to_approval(
 
     # Обновляем статус на 'pending' (на согласовании)
     for request in requests:
-        request.status = "approved_for_payment"
+        request.status = "pending"
         request.updated_at = datetime.utcnow()
 
     # Собираем информацию для уведомления
@@ -730,299 +713,7 @@ async def get_pending_imports_tree(
     return result
 
 
-
-@router.get("/pending/filter-by-node")
-async def filter_requests_by_node(
-    node_id: str,
-    node_type: str,
-    organization: Optional[str] = None,
-    department: Optional[str] = None,
-    user_id: Optional[str] = None,
-    import_id: Optional[str] = None,
-    current_user: User = Depends(require_treasury),
-    db: Session = Depends(get_db)
-):
-    """
-    Фильтрация заявок по выбранному узлу дерева
-    """
-    query = db.query(Request).filter(Request.status == 'pending')
-    
-    # Применяем фильтры в зависимости от типа узла
-    if node_type == 'root':
-        # Все заявки - без фильтров
-        pass
-    elif node_type == 'organization' and organization:
-        query = query.filter(Request.organization == organization)
-    elif node_type == 'department' and organization and department:
-        query = query.filter(
-            Request.organization == organization,
-            Request.department == department
-        )
-    elif node_type == 'user' and user_id:
-        query = query.filter(Request.created_by == uuid.UUID(user_id))
-    elif node_type == 'import' and import_id:
-        # Для import_id может быть как UUID импорта, так и user_id для одиночных заявок
-        try:
-            import_uuid = uuid.UUID(import_id)
-            query = query.filter(Request.import_id == import_uuid)
-        except ValueError:
-            # Если не UUID, то это user_id для одиночных заявок
-            query = query.filter(
-                Request.created_by == uuid.UUID(import_id),
-                Request.import_id.is_(None)
-            )
-    
-    requests = query.order_by(Request.created_at.desc()).all()
-    
-    # Преобразуем в Response
-    return [RequestResponse.from_orm(req) for req in requests]
-
-
-@router.post("/pending/pivot-by-node")
-async def get_pivot_by_node(
-    data: dict,
-    current_user: User = Depends(require_treasury),
-    db: Session = Depends(get_db)
-):
-    """
-    Получение сводной таблицы для выбранного узла дерева
-    """
-    node_type = data.get('node_type')
-    organization = data.get('organization')
-    department = data.get('department')
-    user_id = data.get('user_id')
-    import_id = data.get('import_id')
-    
-    query = db.query(Request).filter(Request.status == 'pending')
-    
-    # Применяем фильтры в зависимости от типа узла
-    if node_type == 'organization' and organization:
-        query = query.filter(Request.organization == organization)
-    elif node_type == 'department' and organization and department:
-        query = query.filter(
-            Request.organization == organization,
-            Request.department == department
-        )
-    elif node_type == 'user' and user_id:
-        query = query.filter(Request.created_by == uuid.UUID(user_id))
-    elif node_type == 'import' and import_id:
-        try:
-            import_uuid = uuid.UUID(import_id)
-            query = query.filter(Request.import_id == import_uuid)
-        except ValueError:
-            query = query.filter(
-                Request.created_by == uuid.UUID(import_id),
-                Request.import_id.is_(None)
-            )
-    # Для root не применяем фильтры - все заявки
-    
-    requests = query.all()
-    
-    # Собираем данные для сводной таблицы
-    pivot_data = {}
-    departments_set = set()
-    
-    for request in requests:
-        org = request.organization
-        dept = request.department
-        
-        departments_set.add(dept)
-        
-        if org not in pivot_data:
-            pivot_data[org] = {}
-        
-        if dept not in pivot_data[org]:
-            pivot_data[org][dept] = 0
-        
-        pivot_data[org][dept] += request.amount
-    
-    # Преобразуем в формат для фронтенда
-    departments = sorted(list(departments_set))
-    rows = []
-    
-    for org, depts in pivot_data.items():
-        row = {
-            'organization': org,
-            'departments': {}
-        }
-        
-        for dept in departments:
-            row['departments'][dept] = depts.get(dept, 0)
-        
-        rows.append(row)
-    
-    # Сортируем строки по названию организации
-    rows.sort(key=lambda x: x['organization'])
-    
-    return {
-        'departments': departments,
-        'rows': rows
-    }
 @router.get("/pending/requests")
-
-@router.get("/pending/tree")
-async def get_pending_tree(
-    current_user: User = Depends(require_treasury),
-    db: Session = Depends(get_db)
-):
-    """
-    Получение дерева заявок для навигации
-    Структура: Все заявки -> Организации -> Подразделения -> Пользователи/Импорты
-    """
-    # Получаем все заявки в статусе 'pending'
-    all_requests = db.query(Request).filter(Request.status == 'pending').all()
-    
-    # Собираем данные для дерева
-    tree_data = {}
-    
-    # Обрабатываем все заявки
-    for request in all_requests:
-        org = request.organization or "Без организации"
-        dept = request.department or "Без подразделения"
-        
-        if org not in tree_data:
-            tree_data[org] = {
-                'name': org,
-                'departments': {},
-                'total_count': 0,
-                'total_amount': 0
-            }
-        
-        if dept not in tree_data[org]['departments']:
-            tree_data[org]['departments'][dept] = {
-                'name': dept,
-                'users': {},
-                'total_count': 0,
-                'total_amount': 0
-            }
-        
-        # Определяем пользователя
-        user_id = request.created_by
-        user = db.query(User).filter(User.id == user_id).first()
-        user_name = user.full_name if user else "Неизвестный пользователь"
-        
-        if user_id not in tree_data[org]['departments'][dept]['users']:
-            tree_data[org]['departments'][dept]['users'][user_id] = {
-                'name': user_name,
-                'user_id': str(user_id),
-                'imports': {},
-                'total_count': 0,
-                'total_amount': 0
-            }
-        
-        # Определяем import_id
-        import_id = request.import_id
-        if import_id:
-            import_obj = db.query(Import).filter(Import.id == import_id).first()
-            import_name = f"{user_name}" + (f" - {import_obj.comment}" if import_obj and import_obj.comment else "")
-        else:
-            import_id = str(user_id)  # Для одиночных заявок
-            import_name = f"{user_name} - одиночные заявки"
-        
-        import_key = str(import_id)
-        if import_key not in tree_data[org]['departments'][dept]['users'][user_id]['imports']:
-            tree_data[org]['departments'][dept]['users'][user_id]['imports'][import_key] = {
-                'name': import_name,
-                'import_id': str(import_id) if import_id else None,
-                'count': 0,
-                'amount': 0
-            }
-        
-        # Обновляем счетчики
-        tree_data[org]['departments'][dept]['users'][user_id]['imports'][import_key]['count'] += 1
-        tree_data[org]['departments'][dept]['users'][user_id]['imports'][import_key]['amount'] += request.amount
-        
-        tree_data[org]['departments'][dept]['users'][user_id]['total_count'] += 1
-        tree_data[org]['departments'][dept]['users'][user_id]['total_amount'] += request.amount
-        
-        tree_data[org]['departments'][dept]['total_count'] += 1
-        tree_data[org]['departments'][dept]['total_amount'] += request.amount
-        
-        tree_data[org]['total_count'] += 1
-        tree_data[org]['total_amount'] += request.amount
-    
-    # Строим дерево
-    def build_tree_node(node_id, name, node_type, count, amount, **kwargs):
-        return TreeNode(
-            id=node_id,
-            name=name,
-            type=node_type,
-            count=count,
-            amount=amount,
-            children=[],
-            **kwargs
-        )
-    
-    # Корневой узел "Все заявки"
-    total_count = len(all_requests)
-    total_amount = sum(req.amount for req in all_requests) if all_requests else 0
-    
-    root_node = build_tree_node(
-        node_id="all",
-        name="Все заявки",
-        node_type="root",
-        count=total_count,
-        amount=float(total_amount)
-    )
-    
-    # Добавляем организации
-    for org_name, org_data in tree_data.items():
-        org_node = build_tree_node(
-            node_id=f"org_{hash(org_name)}",
-            name=org_name,
-            node_type="organization",
-            count=org_data['total_count'],
-            amount=float(org_data['total_amount']),
-            organization=org_name
-        )
-        
-        # Добавляем подразделения
-        for dept_name, dept_data in org_data['departments'].items():
-            dept_node = build_tree_node(
-                node_id=f"dept_{hash(org_name + dept_name)}",
-                name=dept_name,
-                node_type="department",
-                count=dept_data['total_count'],
-                amount=float(dept_data['total_amount']),
-                organization=org_name,
-                department=dept_name
-            )
-            
-            # Добавляем пользователей
-            for user_id, user_data in dept_data['users'].items():
-                user_node = build_tree_node(
-                    node_id=f"user_{user_id}",
-                    name=user_data['name'],
-                    node_type="user",
-                    count=user_data['total_count'],
-                    amount=float(user_data['total_amount']),
-                    user_id=user_data['user_id'],
-                    organization=org_name,
-                    department=dept_name
-                )
-                
-                # Добавляем импорты
-                for import_key, import_data in user_data['imports'].items():
-                    import_node = build_tree_node(
-                        node_id=f"import_{import_key}",
-                        name=import_data['name'],
-                        node_type="import",
-                        count=import_data['count'],
-                        amount=float(import_data['amount']),
-                        import_id=import_data['import_id'],
-                        user_id=user_data['user_id'],
-                        organization=org_name,
-                        department=dept_name
-                    )
-                    user_node.children.append(import_node)
-                
-                dept_node.children.append(user_node)
-            
-            org_node.children.append(dept_node)
-        
-        root_node.children.append(org_node)
-    
-    return root_node
 async def get_pending_requests(
     import_id: Optional[str] = None,
     user_id: Optional[str] = None,
@@ -1034,7 +725,6 @@ async def get_pending_requests(
     Получение заявок на согласовании в казначействе
     Можно фильтровать по import_id, user_id или category
     """
-    query = db.query(Request).filter(Request.status == "pending")
 
     # Применяем фильтрацию по категории (та же логика, что и в get_pending_categories_stats)
     if category == 'pitanie_projivanie':
@@ -1096,16 +786,13 @@ async def get_pending_categories_stats(
     """
     # Базовый запрос для заявок в статусе 'pending'
     query = db.query(Request).filter(Request.status == 'pending')
-
-    # Отдельный запрос для категории "Все заявки"
-    # Если передан import_id, то считаем только заявки этого импорта
-    # Если import_id не передан, то считаем все заявки
+    
+    # Отдельный запрос для категории "Все заявки" (без фильтрации по import_id)
     all_query = db.query(Request).filter(Request.status == 'pending')
 
     if import_id:
         query = query.filter(Request.import_id == uuid.UUID(import_id))
-        # Для категории "Все заявки" ТОЖЕ применяем фильтр по import_id, если он передан
-        all_query = all_query.filter(Request.import_id == uuid.UUID(import_id))
+        # Для категории "Все заявки" НЕ применяем фильтр по import_id
 
     categories = []
     
@@ -1245,7 +932,7 @@ async def get_pending_pivot_table(
     if import_id:
         query = query.filter(Request.import_id == uuid.UUID(import_id))
 
-    # Применяем фильтрацию по категории (та же логика, что и в get_pending_categories_stats) (та же логика, что и в get_pending_categories_stats) (та же логика, что и в get_pending_categories_stats)
+    # Применяем фильтрацию по категории (та же логика, что и в get_pending_categories_stats)
     if category == 'pitanie_projivanie':
         query = query.filter(
             Request.employee_category == 'pitanie_projivanie',
@@ -1318,9 +1005,8 @@ async def get_pending_pivot_table(
     return {
         'departments': departments,
         'rows': rows
-}
-
 @router.post("/pending/send-to-deputy")
+    }
 async def send_to_deputy(
     request_ids: List[uuid.UUID],
     treasury_comment: str = Form(...),
@@ -1454,22 +1140,3 @@ async def send_to_deputy(
         "created_processes": len(created_processes),
         "rejected_count": rejected_count
     }
-
-@router.get("/approved", response_model=List[RequestResponse])
-async def get_approved_requests_alias(
-    category: Category = None,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
-    current_user: User = Depends(require_treasury),
-    db: Session = Depends(get_db)
-):
-    """
-    Алиас для /approved-for-payment
-    """
-    return await get_approved_requests_for_payment(
-        category=category,
-        start_date=start_date,
-        end_date=end_date,
-        current_user=current_user,
-        db=db
-    )

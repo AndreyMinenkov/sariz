@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import DataTable from '../components/DataTable';
-import ActionsPanel from '../components/ActionsPanel';
 import { getTableColumns } from '../config/tableColumns';
 import { useColumnSettings } from '../contexts/ColumnSettingsContext';
+import { formatNumber } from '../utils/format';
 
-// Создаем инстанс axios с интерсепторами
+// Создаем инстанс axios
 const api = axios.create({
   baseURL: '/api',
   headers: {
@@ -14,7 +13,6 @@ const api = axios.create({
   },
 });
 
-// Интерсептор для добавления токена
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -23,13 +21,13 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Интерсептор для обработки ошибок
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      localStorage.removeItem('userRole');
+      localStorage.removeItem('userName');
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -40,45 +38,25 @@ const TreasuryApproved: React.FC = () => {
   const [requests, setRequests] = useState<any[]>([]);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [deputyComment, setDeputyComment] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [userRole, setUserRole] = useState<'employee' | 'deputy_director' | 'treasury'>('treasury');
-  const location = useLocation();
+  const [currentUserRole, setCurrentUserRole] = useState<'employee' | 'deputy_director' | 'treasury'>('treasury');
   const { settings: columnSettings } = useColumnSettings();
 
-  // Получение роли пользователя
   useEffect(() => {
     const role = localStorage.getItem('userRole') || 'treasury';
-    setUserRole(role as 'employee' | 'deputy_director' | 'treasury');
+    setCurrentUserRole(role as 'employee' | 'deputy_director' | 'treasury');
+    loadApprovedRequests();
   }, []);
 
-  const fetchApprovedRequests = async () => {
+  const loadApprovedRequests = async () => {
     try {
-      setLoading(true);
-      const params: any = {};
-      if (statusFilter) params.status = statusFilter;
-      const response = await api.get('/treasury/requests', { params });
-      console.log('Заявки казначейства:', response.data.length);
+      const response = await api.get('/treasury/for-payment');
       setRequests(response.data);
-      setError(null);
-
-      // TODO: Здесь нужно получить комментарий заместителя
-      // Пока используем заглушку
-      setDeputyComment('Заявки согласованы заместителем генерального директора для оплаты');
-
-    } catch (err: any) {
-      console.error('Ошибка загрузки заявок:', err);
-      setError(err.response?.data?.detail || 'Ошибка загрузки заявок');
+    } catch (error) {
+      console.error('Ошибка загрузки согласованных заявок:', error);
     } finally {
       setLoading(false);
     }
   };
-
-  // Обновляем данные при каждом показе страницы
-  useEffect(() => {
-    fetchApprovedRequests();
-  }, [location.pathname, statusFilter]);
 
   const handleRowSelect = (rowId: string) => {
     setSelectedRows(prev =>
@@ -96,248 +74,237 @@ const TreasuryApproved: React.FC = () => {
     }
   };
 
-  const handleExportToExcel = async () => {
+  const handleMarkAsPaid = async () => {
     if (selectedRows.length === 0) {
-      alert('Выберите заявки для экспорта');
+      alert('Выберите хотя бы одну заявку для отметки об оплате');
+      return;
+    }
+
+    if (!window.confirm(`Отметить ${selectedRows.length} заявок как оплаченные?`)) {
       return;
     }
 
     try {
-      const response = await api.post('/treasury/export', {
-        request_ids: selectedRows,
-        export_all: false
-      });
-
-      if (response.status === 200) {
-        // Создаем ссылку для скачивания
-        const url = window.URL.createObjectURL(new Blob([response.data]));
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', 'заявки_к_оплате.xlsx');
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }
-    } catch (err: any) {
-      console.error('Ошибка экспорта:', err);
-      alert(err.response?.data?.detail || 'Ошибка экспорта');
-    }
-  };
-
-  const handleSendForApproval = async () => {
-    if (selectedRows.length === 0) {
-      alert('Выберите заявки для отправки');
-      return;
-    }
-
-    // Проверяем, что все выбранные заявки имеют статус "Черновик"
-    const nonDraftRequests = requests.filter(request =>
-      selectedRows.includes(request.id) && request.status !== 'draft'
-    );
-
-    if (nonDraftRequests.length > 0) {
-      alert('Отправлять на согласование можно только заявки со статусом "Черновик"');
-      return;
-    }
-
-    if (!window.confirm(`Отправить ${selectedRows.length} заявок на согласование?`)) {
-      return;
-    }
-
-    try {
-      const response = await api.post('/treasury/send-to-approval', {
+      await api.post('/treasury/approved/mark-paid', {
         request_ids: selectedRows
       });
 
-      if (response.status === 200) {
-        alert('Заявки успешно отправлены на согласование');
-        fetchApprovedRequests(); // Обновляем список
-        setSelectedRows([]);
-      }
-    } catch (err: any) {
-      console.error('Ошибка отправки на согласование:', err);
-      alert(err.response?.data?.detail || 'Ошибка отправки на согласование');
+      alert(`Успешно отмечено ${selectedRows.length} заявок как оплаченные`);
+      loadApprovedRequests();
+      setSelectedRows([]);
+    } catch (error: any) {
+      console.error('Ошибка отметки об оплате:', error);
+      alert(error.response?.data?.detail || 'Ошибка отметки об оплате');
     }
   };
 
-  // Формируем колонки таблицы
   const tableColumns = getTableColumns();
+  const allSelected = requests.length > 0 && selectedRows.length === requests.length;
 
-  // Фильтр статусов
-  const statusOptions = [
-    { value: '', label: 'Все статусы' },
-    { value: 'draft', label: 'Черновик' },
-    { value: 'pending', label: 'На согласовании' },
-    { value: 'for_payment', label: 'К оплате' },
-    { value: 'rejected', label: 'Отклонено' }
-  ];
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100%',
+        fontSize: '18px',
+        color: '#64748b'
+      }}>
+        Загрузка данных...
+      </div>
+    );
+  }
 
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
-      padding: '16px',
-      backgroundColor: '#f8f9fa'
+      padding: '20px',
+      backgroundColor: '#f8fafc'
     }}>
-      {/* Заголовок и фильтры */}
       <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '16px',
-        padding: '16px',
-        backgroundColor: 'white',
-        borderRadius: '8px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+        marginBottom: '24px',
+        paddingBottom: '16px',
+        borderBottom: '1px solid #e2e8f0'
       }}>
-        <h1 style={{ margin: 0, color: '#343a40', fontSize: '24px' }}>
-          Заявки казначейства
+        <h1 style={{
+          margin: '0 0 12px 0',
+          fontSize: '24px',
+          fontWeight: 600,
+          color: '#1e293b'
+        }}>
+          Согласованные заявки
         </h1>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {/* Фильтр по статусу */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: '#495057', fontSize: '14px', fontWeight: 500 }}>Статус:</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '4px',
-                border: '1px solid #dee2e6',
-                backgroundColor: 'white',
-                color: '#495057',
-                fontSize: '14px',
-                minWidth: '180px'
-              }}
-            >
-              {statusOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Кнопка обновления */}
-          <button
-            onClick={fetchApprovedRequests}
-            style={{
-              padding: '6px 16px',
-              backgroundColor: '#007bff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '14px',
-              cursor: 'pointer',
-              fontWeight: 500
-            }}
-          >
-            Обновить
-          </button>
-        </div>
+        <p style={{
+          margin: 0,
+          color: '#64748b',
+          fontSize: '14px'
+        }}>
+          Заявки, согласованные заместителем генерального директора и ожидающие оплаты
+        </p>
       </div>
 
-      {/* Сообщение об ошибке */}
-      {error && (
-        <div style={{
-          marginBottom: '16px',
-          padding: '12px 16px',
-          backgroundColor: '#f8d7da',
-          color: '#721c24',
-          borderRadius: '6px',
-          fontSize: '14px',
-          border: '1px solid #f5c6cb'
-        }}>
-          <strong>Ошибка:</strong> {error}
-        </div>
-      )}
-
-      {/* Комментарий заместителя (если есть) */}
-      {deputyComment && (
-        <div style={{
-          marginBottom: '16px',
-          padding: '12px 16px',
-          backgroundColor: '#d1ecf1',
-          color: '#0c5460',
-          borderRadius: '6px',
-          fontSize: '14px',
-          border: '1px solid #bee5eb'
-        }}>
-          <strong>Комментарий заместителя:</strong>
-          <div style={{
-            marginTop: '8px',
-            padding: '8px',
-            backgroundColor: 'white',
-            borderRadius: '4px',
-            border: '1px solid #dee2e6'
-          }}>
-            <p style={{ margin: 0, color: '#495057', fontSize: '14px', lineHeight: 1.5 }}>
-              {deputyComment}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Панель действий */}
-      <ActionsPanel
-        selectedRows={requests.filter(req => selectedRows.includes(req.id))}
-        currentUserRole={userRole}
-        onSendForApproval={handleSendForApproval}
-        onExportSelected={handleExportToExcel}
-      />
-
-      {/* Информация о выборе */}
       <div style={{
+        flex: 1,
         display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '12px',
-        padding: '12px 16px',
-        backgroundColor: '#f8f9fa',
-        borderRadius: '6px',
-        fontSize: '14px'
+        flexDirection: 'column',
+        gap: '20px'
       }}>
-        <div style={{ color: '#495057', fontWeight: 500 }}>
-          Выбрано заявок: {selectedRows.length} из {requests.length}
-        </div>
-
-        {requests.length > 0 && (
-          <div style={{ color: '#495057' }}>
-            Общая сумма: {requests.reduce((sum, req) => sum + (req.amount || 0), 0).toFixed(2)} руб.
-          </div>
-        )}
-      </div>
-
-      {/* Загрузка */}
-      {loading ? (
+        {/* Панель управления */}
         <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
           backgroundColor: 'white',
           borderRadius: '8px',
-          fontSize: '16px',
-          color: '#666'
+          padding: '20px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px'
         }}>
-          Загрузка заявок...
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingBottom: '16px',
+            borderBottom: '1px solid #e2e8f0',
+            fontSize: '14px'
+          }}>
+            <div style={{ color: '#495057', fontWeight: 500 }}>
+              Выбрано заявок: {selectedRows.length} из {requests.length}
+            </div>
+
+            {requests.length > 0 && (
+              <div style={{ color: '#495057' }}>
+                Общая сумма: {formatNumber(requests.reduce((sum, req) => sum + (req.amount || 0), 0))} руб.
+              </div>
+            )}
+          </div>
+
+          {/* Загрузка */}
+          {loading ? (
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <div style={{ color: '#64748b', fontSize: '16px' }}>Загрузка заявок...</div>
+            </div>
+          ) : (
+            <>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#495057',
+                    fontSize: '14px'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAll}
+                      style={{ width: '16px', height: '16px', cursor: 'pointer', margin: 0 }}
+                    />
+                    <span>Выбрать все</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleMarkAsPaid}
+                  disabled={selectedRows.length === 0}
+                  style={{
+                    backgroundColor: selectedRows.length > 0 ? '#10b981' : '#94a3b8',
+                    color: 'white',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: selectedRows.length > 0 ? 'pointer' : 'not-allowed',
+                    transition: 'background-color 0.2s',
+                    opacity: selectedRows.length > 0 ? 1 : 0.6,
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseOver={(e) => {
+                    if (selectedRows.length > 0) {
+                      e.currentTarget.style.backgroundColor = '#059669';
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (selectedRows.length > 0) {
+                      e.currentTarget.style.backgroundColor = '#10b981';
+                    }
+                  }}
+                >
+                  Отметить как оплаченные ({selectedRows.length})
+                </button>
+              </div>
+            </>
+          )}
         </div>
-      ) : (
-        /* Таблица заявок */
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          <DataTable
-            columns={tableColumns}
-            data={requests}
-            selectedRows={selectedRows}
-            onRowSelect={handleRowSelect}
-            onSelectAll={handleSelectAll}
-            currentUserRole={userRole}
-            columnSettings={columnSettings}
-          />
+
+        {/* Таблица заявок */}
+        <div style={{
+          flex: 1,
+          backgroundColor: 'white',
+          borderRadius: '8px',
+          padding: '20px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          <h3 style={{
+            margin: '0 0 16px 0',
+            fontSize: '18px',
+            fontWeight: 600,
+            color: '#1e293b'
+          }}>
+            Список заявок ({requests.length})
+          </h3>
+
+          {requests.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '40px',
+              color: '#94a3b8',
+              fontSize: '16px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '6px',
+              border: '2px dashed #cbd5e1',
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              Нет согласованных заявок для отображения
+            </div>
+          ) : (
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              <DataTable
+                columns={tableColumns}
+                data={requests}
+                selectedRows={selectedRows}
+                onRowSelect={handleRowSelect}
+                onSelectAll={handleSelectAll}
+                currentUserRole={currentUserRole}
+                columnSettings={columnSettings}
+              />
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

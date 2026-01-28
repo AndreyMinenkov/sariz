@@ -76,7 +76,7 @@ def get_requests_by_category(
     - 'filialy' - Филиалы
     - 'all' - Все оплаты
     """
-    query = db.query(Request).filter(Request.status == 'pending')  # На согласовании
+    query = db.query(Request).filter(Request.status == 'approved_for_payment')  # На согласовании
     
     if category == 'all':
         # Все заявки со статусом pending

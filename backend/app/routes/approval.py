@@ -37,7 +37,7 @@ async def get_categories_stats(
     Получение статистики по категориям для отображения на кнопках
     """
     # Заявки со статусом 'pending' (на согласовании)
-    base_query = db.query(Request).filter(Request.status == 'pending')
+    base_query = db.query(Request).filter(Request.status == 'approved_for_payment')
     
     stats = {}
     
@@ -52,7 +52,7 @@ async def get_categories_stats(
         Request.source == 'employee'
     ).with_entities(func.coalesce(func.sum(Request.amount), 0)).scalar() or 0
     
-    stats['pitanie_projivanie'] = CategoryStats(
+    stats['pitanie_projivanie'] = CategoryStats( 
         count=pitanie_count,
         total_amount=float(pitanie_amount),
         label="Питание, проживание, аренда, связь"
@@ -69,7 +69,7 @@ async def get_categories_stats(
         Request.source == 'treasury'
     ).with_entities(func.coalesce(func.sum(Request.amount), 0)).scalar() or 0
     
-    stats['graphs'] = CategoryStats(
+    stats['graphs'] = CategoryStats( 
         count=graphs_count,
         total_amount=float(graphs_amount),
         label="Графики"
@@ -86,7 +86,7 @@ async def get_categories_stats(
         Request.source == 'treasury'
     ).with_entities(func.coalesce(func.sum(Request.amount), 0)).scalar() or 0
     
-    stats['approved_by_director'] = CategoryStats(
+    stats['approved_by_director'] = CategoryStats( 
         count=approved_count,
         total_amount=float(approved_amount),
         label="Утверждено генеральным директором"
@@ -103,7 +103,7 @@ async def get_categories_stats(
         Request.source == 'treasury'
     ).with_entities(func.coalesce(func.sum(Request.amount), 0)).scalar() or 0
     
-    stats['non_transferable'] = CategoryStats(
+    stats['non_transferable'] = CategoryStats( 
         count=non_transferable_count,
         total_amount=float(non_transferable_amount),
         label="Непереносимые оплаты"
@@ -126,7 +126,7 @@ async def get_categories_stats(
         func.coalesce(func.sum(Request.amount), 0)
     ).scalar() or 0
     
-    stats['filialy'] = CategoryStats(
+    stats['filialy'] = CategoryStats( 
         count=filialy_count,
         total_amount=float(filialy_amount),
         label="Филиалы"
@@ -138,7 +138,7 @@ async def get_categories_stats(
         func.coalesce(func.sum(Request.amount), 0)
     ).scalar() or 0
     
-    stats['all'] = CategoryStats(
+    stats['all'] = CategoryStats( 
         count=all_count,
         total_amount=float(all_amount),
         label="Все оплаты"
@@ -161,7 +161,7 @@ async def get_pivot_table(
     - Значения: amount (SUM)
     """
     # Базовый запрос с фильтрацией по категории
-    query = db.query(Request).filter(Request.status == 'pending')
+    query = db.query(Request).filter(Request.status == "approved_for_payment")
     
     # Применяем фильтр категории
     if pivot_request.category == 'pitanie_projivanie':
@@ -316,7 +316,7 @@ async def approve_requests(
     
     # Получаем все заявки со статусом pending для анализа
     all_pending_requests = db.query(Request).filter(
-        Request.status == 'pending'
+        Request.status == "approved_for_payment"
     ).all()
     
     if not all_pending_requests:
@@ -331,7 +331,7 @@ async def approve_requests(
             category = category_selection.category
             
             # Получаем все заявки этой категории со статусом pending
-            category_requests = get_requests_by_category(db, category, 'pending')
+            category_requests = get_requests_by_category(db, category, 'approved_for_payment')
             for req in category_requests:
                 approved_request_ids.add(str(req.id))
     
@@ -343,7 +343,7 @@ async def approve_requests(
             
             # Находим заявки этого контрагента
             recipient_requests = db.query(Request).filter(
-                Request.status == 'pending',
+                Request.status == 'approved_for_payment',
                 Request.organization == organization,
                 Request.recipient == recipient
             ).all()
@@ -359,12 +359,12 @@ async def approve_requests(
     # Получаем заявки которые будут согласованы (до обновления статуса)
     requests_to_approve = db.query(Request).filter(
         Request.id.in_(list(approved_request_ids)),
-        Request.status == 'pending'
+        Request.status == 'approved_for_payment'
     ).all()
 
     # Получаем заявки которые будут отклонены (до обновления статуса)  
     requests_to_reject = db.query(Request).filter(
-        Request.status == 'pending',
+        Request.status == 'approved_for_payment',
         ~Request.id.in_(list(approved_request_ids))
     ).all()
 
@@ -373,12 +373,12 @@ async def approve_requests(
     # Получаем заявки которые будут согласованы (до обновления статуса)
     requests_to_approve = db.query(Request).filter(
         Request.id.in_(list(approved_request_ids)),
-        Request.status == 'pending'
+        Request.status == 'approved_for_payment'
     ).all()
 
     # Получаем заявки которые будут отклонены (до обновления статуса)  
     requests_to_reject = db.query(Request).filter(
-        Request.status == 'pending',
+        Request.status == 'approved_for_payment',
         ~Request.id.in_(list(approved_request_ids))
     ).all()
 
@@ -386,7 +386,7 @@ async def approve_requests(
     # Заявки для оплаты
     approved_count = db.query(Request).filter(
         Request.id.in_(list(approved_request_ids)),
-        Request.status == 'pending'
+        Request.status == 'approved_for_payment'
     ).update(
         {"status": "for_payment"},
         synchronize_session=False
@@ -394,7 +394,7 @@ async def approve_requests(
     
     # Остальные заявки (не выбранные) отклоняем
     rejected_count = db.query(Request).filter(
-        Request.status == 'pending',
+        Request.status == 'approved_for_payment',
         ~Request.id.in_(list(approved_request_ids))
     ).update(
         {"status": "rejected"},
