@@ -76,3 +76,4 @@ Thumbs.db
 
 # Patch files
 *.patch
+scripts/utils/
