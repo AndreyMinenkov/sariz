@@ -1,14 +1,15 @@
 from urllib.parse import quote
 from typing import List, Optional
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Response
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Response, Query
 from datetime import datetime, date, timedelta
 import pytz
 import openpyxl
 from io import BytesIO
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models import TreasuryNotification, Request, User, Import, ApprovalProcess
@@ -32,6 +33,14 @@ class TreeNode(BaseModel):
     department: Optional[str] = None
 
 TreeNode.update_forward_refs()
+
+# Модель для комментариев процессов согласования
+class ApprovalCommentResponse(BaseModel):
+    """Ответ с комментариями процесса согласования"""
+    has_comment: bool = Field(..., description="Есть ли комментарий")
+    treasury_comment: Optional[str] = Field(None, description="Комментарий казначейства")
+    approval_process_id: Optional[UUID] = Field(None, description="ID процесса согласования")
+    comment: Optional[str] = Field(None, description="Комментарий заместителя (для казначейства)")
 
 router = APIRouter()
 
@@ -1378,19 +1387,21 @@ async def send_to_deputy(
 
     created_processes = []
 
+    # Находим заместителя (один для всех категорий)
+    deputy = db.query(User).filter(
+        User.role == "deputy_director",
+        User.is_active == True
+    ).first()
+
+    if not deputy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Не найден активный заместитель"
+        )
+    
     # Создаем ApprovalProcess для каждой категории
     for category, cat_request_ids in categories_dict.items():
-        # Находим заместителя для этой категории
-        deputy = db.query(User).filter(
-            User.role == "deputy_director",
-            User.is_active == True
-        ).first()
-
-        if not deputy:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Не найден активный заместитель"
-            )
+        
 
         # Создаем процесс согласования
         approval_process = ApprovalProcess(
@@ -1414,7 +1425,29 @@ async def send_to_deputy(
                 request.status = 'approved_for_payment'
                 request.approval_process_id = approval_process.id
 
-    # АВТОМАТИЧЕСКОЕ ОТКЛОНЕНИЕ ОСТАВШИХСЯ ЗАЯВОК
+    
+    # Создаем дополнительный общий процесс, если отправляются заявки из разных категорий
+    # Всегда создаем общий процесс при отправке из TreasuryPending
+    if True:
+        # Создаем общий процесс с категорией 'general'
+        general_approval_process = ApprovalProcess(
+            id=uuid.uuid4(),
+            deputy_id=deputy.id,
+            category='general',
+            comment=treasury_comment,
+            treasury_comment=treasury_comment,
+            treasury_user_id=current_user.id,
+            status='pending',
+            request_ids=request_ids  # Все выбранные заявки
+        )
+        
+        db.add(general_approval_process)
+        created_processes.append(general_approval_process)
+        
+        print(f'Создан общий процесс согласования для {len(request_ids)} заявок из {len(categories_dict)} категорий')
+
+
+# АВТОМАТИЧЕСКОЕ ОТКЛОНЕНИЕ ОСТАВШИХСЯ ЗАЯВОК
     rejected_count = 0
     
     if import_ids:
@@ -1468,8 +1501,108 @@ async def get_approved_requests_alias(
     """
     return await get_approved_requests_for_payment(
         category=category,
+            comment=treasury_comment,
         start_date=start_date,
         end_date=end_date,
         current_user=current_user,
         db=db
     )
+
+@router.get("/approval-comments/{request_id}", response_model=ApprovalCommentResponse)
+async def get_approval_comment_for_request(
+    request_id: UUID,
+    current_user: User = Depends(require_treasury),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение комментария заместителя для конкретной заявки
+    """
+    # Находим заявку
+    request = db.query(Request).filter(Request.id == request_id).first()
+    if not request:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    
+    # Если нет процесса согласования
+    if not request.approval_process_id:
+        return ApprovalCommentResponse(
+            has_comment=False,
+            treasury_comment=None,
+            approval_process_id=None,
+            comment=None
+        )
+    
+    # Находим процесс согласования
+    approval_process = db.query(ApprovalProcess).filter(
+        ApprovalProcess.id == request.approval_process_id
+    ).first()
+    
+    if not approval_process:
+        return ApprovalCommentResponse(
+            has_comment=False,
+            treasury_comment=None,
+            approval_process_id=None,
+            comment=None
+        )
+    
+    return ApprovalCommentResponse(
+        has_comment=True,
+        treasury_comment=approval_process.treasury_comment,
+        approval_process_id=approval_process.id,
+        comment=approval_process.comment
+    )
+
+
+@router.get("/batch-approval-comments", response_model=List[ApprovalCommentResponse])
+async def get_batch_approval_comments(
+    request_ids: List[UUID] = Query(..., description="Список ID заявок"),
+    current_user: User = Depends(require_treasury),
+    db: Session = Depends(get_db)
+):
+    """
+    Получение комментариев заместителя для нескольких заявок
+    """
+    if not request_ids:
+        return []
+    
+    # Находим все заявки
+    requests = db.query(Request).filter(Request.id.in_(request_ids)).all()
+    
+    # Собираем ID процессов согласования
+    approval_process_ids = [r.approval_process_id for r in requests if r.approval_process_id]
+    
+    if not approval_process_ids:
+        return [ApprovalCommentResponse(
+            has_comment=False,
+            treasury_comment=None,
+            approval_process_id=None,
+            comment=None
+        ) for _ in requests]
+    
+    # Находим все процессы согласования
+    approval_processes = db.query(ApprovalProcess).filter(
+        ApprovalProcess.id.in_(approval_process_ids)
+    ).all()
+    
+    # Создаем словарь для быстрого доступа
+    process_dict = {str(p.id): p for p in approval_processes}
+    
+    # Формируем ответ
+    result = []
+    for request in requests:
+        if request.approval_process_id and str(request.approval_process_id) in process_dict:
+            process = process_dict[str(request.approval_process_id)]
+            result.append(ApprovalCommentResponse(
+                has_comment=True,
+                treasury_comment=process.treasury_comment,
+                approval_process_id=process.id,
+                comment=process.comment
+            ))
+        else:
+            result.append(ApprovalCommentResponse(
+                has_comment=False,
+                treasury_comment=None,
+                approval_process_id=None,
+                comment=None
+            ))
+    
+    return result

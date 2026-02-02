@@ -100,8 +100,8 @@ class RequestResponse(RequestBase):
     category: Category
     priority: Optional[int] = None
     payment_date: Optional[date] = None
-    applicant: str
-    import_type: str
+    applicant: Optional[str] = None
+    import_type: Optional[str] = None
     source: str
     employee_category: Optional[str] = None
     treasury_import_type: Optional[str] = None

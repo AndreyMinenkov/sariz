@@ -30,6 +30,16 @@ interface PivotTableResponse {
   category: string;
 }
 
+// Тип для комментариев казначейства
+interface TreasuryComment {
+  has_comment: boolean;
+  treasury_comment: string | null;
+  approval_process_id: string | null;
+  comment: string | null;
+  category: string | null;
+  is_general: boolean;
+}
+
 // Типы для выбора
 interface CategorySelection {
   category: string;
@@ -49,12 +59,16 @@ const DeputyPending: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedOrganizations, setExpandedOrganizations] = useState<Set<string>>(new Set());
-  
+
   // Состояние для выбора
   const [selectedCategories, setSelectedCategories] = useState<CategorySelection[]>([]);
   const [selectedRecipients, setSelectedRecipients] = useState<RecipientSelection[]>([]);
   const [approvalComment, setApprovalComment] = useState<string>('');
   const [showApprovalModal, setShowApprovalModal] = useState<boolean>(false);
+  
+  // Состояние для комментариев
+  const [treasuryComments, setTreasuryComments] = useState<TreasuryComment[]>([]);
+  const [currentTreasuryComment, setCurrentTreasuryComment] = useState<string | null>(null);
 
   // Категории в порядке отображения
   const categoryOrder = [
@@ -78,11 +92,27 @@ const DeputyPending: React.FC = () => {
   // Загрузка статистики категорий
   const loadCategories = useCallback(async () => {
     try {
-      const response = await axios.get('/api/approval/categories', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      const response = await axios.get("/api/approval/categories", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
       });
       setCategories(response.data);
-      
+
+      // Загружаем активные процессы с комментариями казначейства
+      try {
+        const commentsResponse = await axios.get("/api/approval/active-processes", {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        });
+        console.log("Загружены комментарии казначейства:", commentsResponse.data);
+        // Фильтруем только те, где есть treasury_comment
+        const validComments = commentsResponse.data.filter(
+          (item: any) => item.has_comment && item.treasury_comment
+        );
+        setTreasuryComments(validComments);
+      } catch (commentsErr) {
+        console.error("Ошибка загрузки комментариев казначейства:", commentsErr);
+        setTreasuryComments([]);
+      }
+
       // Инициализируем выбор категорий
       const initialCategories: CategorySelection[] = categoryOrder.map(cat => ({
         category: cat,
@@ -90,8 +120,8 @@ const DeputyPending: React.FC = () => {
       }));
       setSelectedCategories(initialCategories);
     } catch (err) {
-      console.error('Ошибка загрузки категорий:', err);
-      setError('Не удалось загрузить статистику категорий');
+      console.error("Ошибка загрузки категорий:", err);
+      setError("Не удалось загрузить статистику категорий");
     }
   }, []);
 
@@ -107,7 +137,7 @@ const DeputyPending: React.FC = () => {
       setPivotData(response.data);
       // Сбрасываем развернутые организации при смене категории
       setExpandedOrganizations(new Set());
-      
+
       // Инициализируем выбор контрагентов для этой категории
       const recipients: RecipientSelection[] = [];
       response.data.rows.forEach((row: PivotTableRow) => {
@@ -135,15 +165,34 @@ const DeputyPending: React.FC = () => {
   }, [loadCategories, loadPivotTable, selectedCategory]);
 
   // Обработчик выбора категории
-  const handleCategorySelect = (category: string) => {
+  const handleCategorySelect = async (category: string) => {
     setSelectedCategory(category);
+    setCurrentTreasuryComment(null);
+
+    // Загружаем комментарий казначейства для выбранной категории
+    try {
+      const response = await axios.get(`/api/approval/approval-info?category=${encodeURIComponent(category)}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+      });
+      console.log("Комментарий для категории", category, ":", response.data);
+
+      if (response.data.has_comment && response.data.treasury_comment) {
+        console.log("Найден комментарий казначейства:", response.data.treasury_comment);
+        setCurrentTreasuryComment(response.data.treasury_comment);
+      } else {
+        setCurrentTreasuryComment(null);
+      }
+    } catch (err) {
+      console.error("Ошибка загрузки комментария для категории:", category, err);
+      setCurrentTreasuryComment(null);
+    }
   };
 
   // Обработчик выбора категории чекбоксом
   const handleCategoryCheckboxChange = (categoryKey: string) => {
-    setSelectedCategories(prev => 
-      prev.map(cat => 
-        cat.category === categoryKey 
+    setSelectedCategories(prev =>
+      prev.map(cat =>
+        cat.category === categoryKey
           ? { ...cat, selected: !cat.selected }
           : cat
       )
@@ -185,26 +234,26 @@ const DeputyPending: React.FC = () => {
     const selectedCatLabels = selectedCategories
       .filter(cat => cat.selected)
       .map(cat => categories[cat.category]?.label || cat.category);
-    
+
     const selectedRecLabels = selectedRecipients
       .filter(rec => rec.selected)
       .map(rec => `${rec.recipient} (${rec.organization})`);
-    
+
     let comment = '';
-    
+
     if (selectedCatLabels.length > 0) {
       comment += `Платим категории: ${selectedCatLabels.join(', ')}`;
     }
-    
+
     if (selectedRecLabels.length > 0) {
       if (comment) comment += ' и ';
       comment += `заявки: ${selectedRecLabels.join(', ')}`;
     }
-    
+
     if (!comment) {
       comment = 'Согласование заявок';
     }
-    
+
     return comment;
   }, [selectedCategories, selectedRecipients, categories]);
 
@@ -215,12 +264,12 @@ const DeputyPending: React.FC = () => {
   }, [selectedCategories, selectedRecipients, generateAutoComment]);
 
   // Подсчет выбранных элементов
-  const selectedCategoriesCount = useMemo(() => 
+  const selectedCategoriesCount = useMemo(() =>
     selectedCategories.filter(cat => cat.selected).length,
     [selectedCategories]
   );
 
-  const selectedRecipientsCount = useMemo(() => 
+  const selectedRecipientsCount = useMemo(() =>
     selectedRecipients.filter(rec => rec.selected).length,
     [selectedRecipients]
   );
@@ -247,11 +296,11 @@ const DeputyPending: React.FC = () => {
 
       alert(response.data.message);
       setShowApprovalModal(false);
-      
+
       // Сбрасываем выбор
       setSelectedCategories(prev => prev.map(cat => ({ ...cat, selected: false })));
       setSelectedRecipients(prev => prev.map(rec => ({ ...rec, selected: false })));
-      
+
       // Перезагружаем данные
       loadCategories();
       loadPivotTable(selectedCategory);
@@ -268,11 +317,11 @@ const DeputyPending: React.FC = () => {
       const orgRecipients = selectedRecipients.filter(
         rec => rec.organization === row.organization
       );
-      const allSelected = orgRecipients.length > 0 && 
+      const allSelected = orgRecipients.length > 0 &&
         orgRecipients.every(rec => rec.selected);
-      const someSelected = orgRecipients.length > 0 && 
+      const someSelected = orgRecipients.length > 0 &&
         orgRecipients.some(rec => rec.selected) && !allSelected;
-      
+
       return (
         <React.Fragment key={`org-${index}`}>
           <tr className="organization-row">
@@ -318,7 +367,7 @@ const DeputyPending: React.FC = () => {
               <strong>{formatAmount(row.total || 0)}</strong>
             </td>
           </tr>
-          
+
           {isExpanded && pivotData?.rows
             .filter(r => r.type === 'recipient' && r.organization === row.organization)
             .map((recipientRow, idx) => renderTableRow(recipientRow, idx + 1000))}
@@ -330,7 +379,7 @@ const DeputyPending: React.FC = () => {
       const isSelected = selectedRecipients.some(
         rec => rec.organization === row.organization && rec.recipient === row.recipient && rec.selected
       );
-      
+
       return (
         <tr key={`recipient-${index}`} className="recipient-row">
           <td className="recipient-cell">
@@ -416,6 +465,11 @@ const DeputyPending: React.FC = () => {
     });
   };
 
+  // Найти общий комментарий
+  const generalComment = useMemo(() => {
+    return treasuryComments.find(comment => comment.is_general);
+  }, [treasuryComments]);
+
   return (
     <div className="deputy-pending">
       <header className="pending-header">
@@ -429,8 +483,8 @@ const DeputyPending: React.FC = () => {
             disabled={selectedCategoriesCount === 0 && selectedRecipientsCount === 0}
             onClick={() => setShowApprovalModal(true)}
             title={
-              selectedCategoriesCount === 0 && selectedRecipientsCount === 0 
-                ? 'Выберите категории или контрагентов для согласования' 
+              selectedCategoriesCount === 0 && selectedRecipientsCount === 0
+                ? 'Выберите категории или контрагентов для согласования'
                 : `Согласовать ${selectedCategoriesCount} категорий и ${selectedRecipientsCount} контрагентов`
             }
           >
@@ -438,6 +492,34 @@ const DeputyPending: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {/* Общий комментарий от казначейства (показывается для категории "Все оплаты") */}
+      {selectedCategory === "all" && generalComment && generalComment.treasury_comment && (
+        <div className="general-treasury-comment-section">
+          <div className="treasury-comment-header">
+            <h3>Общий комментарий от казначейства:</h3>
+          </div>
+          <div className="treasury-comment-content">
+            <div className="treasury-comment-text">
+              {generalComment.treasury_comment}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Комментарий казначейства для конкретной категории */}
+      {currentTreasuryComment && selectedCategory && selectedCategory !== "all" && (
+        <div className="treasury-comment-section detailed-comment">
+          <div className="treasury-comment-header">
+            <h3>Комментарий от казначейства (категория: {categories[selectedCategory]?.label || selectedCategory}):</h3>
+          </div>
+          <div className="treasury-comment-content">
+            <div className="treasury-comment-text">
+              {currentTreasuryComment}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Панель категорий */}
       <div className="category-tabs">
@@ -466,7 +548,7 @@ const DeputyPending: React.FC = () => {
                 )}
               </h2>
               <div className="table-info">
-                {pivotData.rows.filter(r => r.type === 'organization').length} организаций, 
+                {pivotData.rows.filter(r => r.type === 'organization').length} организаций,
                 {pivotData.rows.filter(r => r.type === 'recipient').length} контрагентов
               </div>
             </div>
@@ -486,7 +568,7 @@ const DeputyPending: React.FC = () => {
                   {pivotData.rows
                     .filter(row => row.type === 'organization')
                     .map((row, index) => renderTableRow(row, index))}
-                  
+
                   {/* Итоговая строка */}
                   {pivotData.total_row && renderTableRow({
                     type: 'total',
@@ -507,7 +589,7 @@ const DeputyPending: React.FC = () => {
         <div className="modal-overlay">
           <div className="modal-content">
             <h3>Согласование заявок</h3>
-            
+
             <div className="selection-summary">
               <h4>Сводка по выбору:</h4>
               {selectedCategoriesCount > 0 && (
@@ -524,7 +606,7 @@ const DeputyPending: React.FC = () => {
                   </ul>
                 </div>
               )}
-              
+
               {selectedRecipientsCount > 0 && (
                 <div className="selected-recipients">
                   <strong>Выбранные контрагенты:</strong>
@@ -540,7 +622,7 @@ const DeputyPending: React.FC = () => {
                 </div>
               )}
             </div>
-            
+
             <div className="form-group">
               <label htmlFor="comment">Комментарий для казначейства:</label>
               <textarea

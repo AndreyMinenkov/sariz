@@ -118,6 +118,8 @@
 
 .pivot-table-container {
   overflow-x: auto;
+  width: 100%;
+  width: 100%;
 }
 
 .pivot-table {
@@ -127,6 +129,7 @@
 }
 
 .pivot-table th {
+  width: auto;
   background-color: #f1f5f9;
   padding: 12px;
   text-align: left;
@@ -137,6 +140,7 @@
 }
 
 .pivot-table td {
+  width: auto;
   padding: 12px;
   border-bottom: 1px solid #e2e8f0;
 }
@@ -452,4 +456,70 @@
 .no-node-selected p {
   margin: 8px 0;
   font-size: 15px;
+}
+
+/* Стили для комментариев заместителя */
+.deputy-comment-section {
+  background-color: #f0f7ff;
+  border: 1px solid #cce5ff;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+}
+
+.deputy-comment-header {
+  margin-bottom: 12px;
+}
+
+.deputy-comment-header h3 {
+  margin: 0;
+  color: #004085;
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.deputy-comment-header h3::before {
+  content: "📝";
+  margin-right: 10px;
+  font-size: 20px;
+}
+
+.deputy-comment-content {
+  background-color: white;
+  border: 1px solid #b8daff;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.deputy-comment-text {
+  color: #004085;
+  font-size: 16px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.deputy-comment-text:empty::before {
+  content: "Нет комментария";
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Адаптивность для комментариев */
+@media (max-width: 768px) {
+  .deputy-comment-section {
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  
+  .deputy-comment-header h3 {
+    font-size: 16px;
+  }
+  
+  .deputy-comment-text {
+    font-size: 14px;
+  }
 }

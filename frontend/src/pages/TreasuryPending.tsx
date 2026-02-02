@@ -61,6 +61,14 @@ interface TreasuryPendingContext {
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string | null) => void;
 }
+// Типы для комментариев
+interface ApprovalCommentInfo {
+  has_comment: boolean;
+  treasury_comment: string | null;
+  approval_process_id: string | null;
+  comment: string | null;
+}
+
 
 const TreasuryPending: React.FC = () => {
   // Получаем контекст из Layout
@@ -86,6 +94,8 @@ const TreasuryPending: React.FC = () => {
 
   // Комментарий для заместителя
   const [treasuryComment, setTreasuryComment] = useState('');
+  // Состояние для комментариев заместителя
+  const [deputyCommentInfo, setDeputyCommentInfo] = useState<ApprovalCommentInfo | null>(null);
 
   // Роль пользователя и настройки колонок
   const [userRole, setUserRole] = useState<'employee' | 'deputy_director' | 'treasury'>('treasury');
@@ -100,6 +110,35 @@ const TreasuryPending: React.FC = () => {
   }, []);
 
   // Загрузка категорий
+  // Загрузка комментариев заместителя для выбранных заявок
+  const loadDeputyComments = async (requestIds: string[]) => {
+    if (!requestIds || requestIds.length === 0) {
+      setDeputyCommentInfo(null);
+      return;
+    }
+
+    try {
+      // Преобразуем массив ID в строку параметров
+      const idsParam = requestIds.map(id => `request_ids=${id}`).join('&');
+      const response = await api.get(`/treasury/batch-approval-comments?${idsParam}`);
+      
+      // Если есть комментарии, берем первый (все заявки должны быть из одного процесса согласования)
+      if (response.data && response.data.length > 0 && response.data[0].has_comment) {
+        setDeputyCommentInfo(response.data[0]);
+      } else {
+        setDeputyCommentInfo({
+          has_comment: false,
+          treasury_comment: null,
+          approval_process_id: null,
+          comment: null
+        });
+      }
+    } catch (err) {
+      console.error('Ошибка загрузки комментариев заместителя:', err);
+      setDeputyCommentInfo(null);
+    }
+  };
+
   const loadCategories = async () => {
     try {
       const response = await api.get('/treasury/pending/categories');
@@ -123,6 +162,13 @@ const TreasuryPending: React.FC = () => {
       setSelectedCategory(null);
     }
   }, [selectedNodeId]);
+  // Загрузка комментариев заместителя при изменении выбранных строк
+  useEffect(() => {
+    if (selectedRows && selectedRows.length > 0) {
+      loadDeputyComments(selectedRows);
+    }
+  }, [selectedRows]);
+
 
   // Загрузка данных при выборе категории
   const handleCategorySelect = async (categoryName: string) => {
@@ -388,6 +434,31 @@ const TreasuryPending: React.FC = () => {
         {selectedNode && (
           <div className="current-node-info">
             <span className="node-title">{getNodeTitle(selectedNode)}</span>
+        {/* Комментарий заместителя */}
+        {deputyCommentInfo && deputyCommentInfo.has_comment && deputyCommentInfo.comment && (
+          <div className="deputy-comment-section">
+            <div className="deputy-comment-header">
+              <h3>Комментарий заместителя:</h3>
+            </div>
+            <div className="deputy-comment-content">
+              <div className="deputy-comment-text">
+                {deputyCommentInfo.comment}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {deputyCommentInfo && deputyCommentInfo.has_comment && !deputyCommentInfo.comment && (
+          <div className="deputy-comment-section">
+            <div className="deputy-comment-header">
+              <h3>Нет комментария от заместителя</h3>
+            </div>
+            <div className="deputy-comment-content">
+              <div className="deputy-comment-text">Заместитель не оставил комментарий при согласовании</div>
+            </div>
+          </div>
+        )}
+
             <span className="node-stats">
               {selectedNode.count} заявок, {formatNumber(selectedNode.amount)} ₽
             </span>

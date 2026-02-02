@@ -186,6 +186,8 @@
 
 /* Обертка таблицы с горизонтальным скроллом только при необходимости */
 .table-wrapper {
+  width: 100%;
+  overflow-x: auto;
   flex: 1;
   overflow: auto;
   border: 1px solid #e9ecef;
@@ -196,7 +198,7 @@
 .pivot-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  
   min-width: 800px;
 }
 
@@ -209,6 +211,8 @@
 }
 
 .pivot-table th {
+  width: auto;
+  overflow: visible;
   padding: 12px 8px;
   text-align: right;
   border-bottom: 2px solid #dee2e6;
@@ -219,18 +223,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   border-right: 1px solid #e9ecef;
-  min-width: 80px;
-  max-width: 150px;
 }
 
 .pivot-table th:first-child {
+  width: auto;
   text-align: left;
   position: sticky;
   left: 0;
   z-index: 20;
   background-color: #f8f9fa;
-  min-width: 200px;
-  max-width: 400px;
   border-right: 2px solid #dee2e6;
 }
 
@@ -240,6 +241,7 @@
 
 /* Ячейки таблицы */
 .pivot-table td {
+  overflow: visible;
   padding: 10px 8px;
   border-bottom: 1px solid #e9ecef;
   text-align: right;
@@ -253,6 +255,7 @@
 }
 
 .pivot-table td:first-child {
+  width: auto;
   text-align: left;
   position: sticky;
   left: 0;
@@ -512,13 +515,12 @@
   }
   
   .pivot-table th:first-child {
-    min-width: 200px;
-    max-width: 250px;
+  width: auto;
   }
   
   .pivot-table th {
-    min-width: 70px;
-    max-width: 120px;
+  width: auto;
+  overflow: visible;
     font-size: 12px;
   }
 }
@@ -543,19 +545,19 @@
   }
   
   .pivot-table th:first-child {
-    min-width: 180px;
-    max-width: 200px;
+  width: auto;
     font-size: 12px;
   }
   
   .pivot-table th {
-    min-width: 60px;
-    max-width: 100px;
+  width: auto;
+  overflow: visible;
     font-size: 11px;
     padding: 8px 4px;
   }
   
   .pivot-table td {
+  overflow: visible;
     font-size: 11px;
     padding: 8px 4px;
   }
@@ -911,6 +913,7 @@ input[type="checkbox"]:indeterminate {
 
 /* Убираем лишние отступы вокруг чекбоксов */
 .pivot-table td {
+  overflow: visible;
   padding-top: 8px !important;
   padding-bottom: 8px !important;
 }
@@ -960,4 +963,104 @@ input[type="checkbox"]:indeterminate {
   overflow: auto;
   border: 1px solid #e9ecef;
   border-radius: 6px;
+}
+
+/* Стили для комментариев казначейства */
+.treasury-comment-section {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.treasury-comment-header {
+  margin-bottom: 12px;
+}
+
+.treasury-comment-header h3 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.treasury-comment-header h3::before {
+  content: "💬";
+  margin-right: 10px;
+  font-size: 20px;
+}
+
+.treasury-comment-content {
+  background-color: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.treasury-comment-text {
+  color: #495057;
+  font-size: 16px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.treasury-comment-text:empty::before {
+  content: "Нет комментария";
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Адаптивность для комментариев */
+@media (max-width: 768px) {
+  .treasury-comment-section {
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  
+  .treasury-comment-header h3 {
+    font-size: 16px;
+  }
+  
+  .treasury-comment-text {
+    font-size: 14px;
+  }
+}
+/* Стили для основного комментария казначейства (отправка на согласование) */
+.treasury-comment-section.main-comment {
+  background-color: #e7f3ff;
+  border: 2px solid #007bff;
+  border-left: 6px solid #007bff;
+}
+
+/* Стили для детального комментария (импорт особых заявок) */
+.treasury-comment-section.detailed-comment {
+  background-color: #f8f9fa;
+  border: 1px solid #28a745;
+  border-left: 6px solid #28a745;
+  margin-top: 15px;
+}
+
+.treasury-comment-section.main-comment .treasury-comment-header h3::before {
+  content: "📤";
+  margin-right: 10px;
+  font-size: 20px;
+}
+
+.treasury-comment-section.detailed-comment .treasury-comment-header h3::before {
+  content: "📋";
+  margin-right: 10px;
+  font-size: 20px;
+}
+
+.treasury-comment-section.main-comment .treasury-comment-header h3 {
+  color: #007bff;
+}
+
+.treasury-comment-section.detailed-comment .treasury-comment-header h3 {
+  color: #28a745;
 }
