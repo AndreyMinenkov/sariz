@@ -144,6 +144,62 @@ const TreasuryApproved: React.FC = () => {
     }
   };
 
+  // Функция экспорта заявок в Excel
+  const handleExportToExcel = async () => {
+    if (requests.length === 0) {
+      alert('Нет заявок для экспорта');
+      return;
+    }
+
+    try {
+      // Определяем, какие заявки экспортировать
+      const exportData: any = {};
+      
+      if (selectedRows.length > 0) {
+        // Экспорт только выбранных заявок
+        exportData.request_ids = selectedRows;
+        exportData.export_all = false;
+      } else {
+        // Экспорт всех заявок
+        exportData.export_all = true;
+      }
+
+      // Отправляем запрос на экспорт
+      const response = await api.post('/treasury/export', exportData, {
+        responseType: 'blob'
+      });
+
+      // Создаем ссылку для скачивания
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      
+      // Извлекаем имя файла из заголовков
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = `Заявки_к_оплате_${new Date().toLocaleDateString('ru-RU')}.xlsx`;
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename*=UTF-8''(.+)/) || 
+                             contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = decodeURIComponent(filenameMatch[1]);
+        }
+      }
+      
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+      // Освобождаем URL
+      window.URL.revokeObjectURL(url);
+      
+    } catch (error: any) {
+      console.error('Ошибка экспорта в Excel:', error);
+      alert(error.response?.data?.detail || 'Ошибка экспорта в Excel');
+    }
+  };
+
   const tableColumns = getTableColumns();
 
   return (
@@ -183,6 +239,14 @@ const TreasuryApproved: React.FC = () => {
               {selectedRows.length === requests.length ? 'Снять все' : 'Выбрать все'}
             </button>
           </div>
+
+          <button
+            onClick={handleExportToExcel}
+            disabled={requests.length === 0}
+            className="export-excel-btn"
+          >
+            Экспорт в Excel
+          </button>
 
           <button
             onClick={handleMarkAsPaid}
