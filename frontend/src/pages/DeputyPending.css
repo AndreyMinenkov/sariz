@@ -965,14 +965,16 @@ input[type="checkbox"]:indeterminate {
   border-radius: 6px;
 }
 
-/* Стили для комментариев казначейства */
+/* Стили для комментариев казначейства - одинаковые с TreasuryApproved */
 .treasury-comment-section {
-  background-color: #f8f9fa;
-  border: 1px solid #e9ecef;
+  background-color: #f0f7ff;
+  border: 1px solid #cce5ff;
   border-radius: 8px;
   padding: 20px;
-  margin-bottom: 24px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  margin-bottom: 32px;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .treasury-comment-header {
@@ -981,7 +983,7 @@ input[type="checkbox"]:indeterminate {
 
 .treasury-comment-header h3 {
   margin: 0;
-  color: #2c3e50;
+  color: #004085;
   font-size: 18px;
   font-weight: 600;
   display: flex;
@@ -989,20 +991,20 @@ input[type="checkbox"]:indeterminate {
 }
 
 .treasury-comment-header h3::before {
-  content: "💬";
+  content: '\1F4DD';
   margin-right: 10px;
   font-size: 20px;
 }
 
 .treasury-comment-content {
   background-color: white;
-  border: 1px solid #dee2e6;
+  border: 1px solid #b8daff;
   border-radius: 6px;
   padding: 16px;
 }
 
 .treasury-comment-text {
-  color: #495057;
+  color: #004085;
   font-size: 16px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -1010,7 +1012,7 @@ input[type="checkbox"]:indeterminate {
 }
 
 .treasury-comment-text:empty::before {
-  content: "Нет комментария";
+  content: "��Нет комментария";
   color: #6c757d;
   font-style: italic;
 }
@@ -1021,46 +1023,89 @@ input[type="checkbox"]:indeterminate {
     padding: 16px;
     margin-bottom: 20px;
   }
-  
+
   .treasury-comment-header h3 {
     font-size: 16px;
   }
-  
+
   .treasury-comment-text {
     font-size: 14px;
   }
 }
-/* Стили для основного комментария казначейства (отправка на согласование) */
-.treasury-comment-section.main-comment {
-  background-color: #e7f3ff;
-  border: 2px solid #007bff;
-  border-left: 6px solid #007bff;
-}
 
 /* Стили для детального комментария (импорт особых заявок) */
-.treasury-comment-section.detailed-comment {
-  background-color: #f8f9fa;
-  border: 1px solid #28a745;
-  border-left: 6px solid #28a745;
-  margin-top: 15px;
+
+
+
+
+
+/* Стили для общего комментария казначейства */
+.general-treasury-comment-section {
+  background-color: #f0f7ff;
+  border: 1px solid #cce5ff;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 32px; /* Увеличенный отступ для визуального разделения */
+  margin-top: 10px; /* Небольшой отступ сверху */
+  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.15); /* Более выраженная тень */
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1;
 }
 
-.treasury-comment-section.main-comment .treasury-comment-header h3::before {
-  content: "📤";
+.general-treasury-comment-section .treasury-comment-header {
+  margin-bottom: 12px;
+}
+
+.general-treasury-comment-section .treasury-comment-header h3 {
+  margin: 0;
+  color: #004085;
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.general-treasury-comment-section .treasury-comment-header h3::before {
+  content: '\1F4DD';
   margin-right: 10px;
   font-size: 20px;
 }
 
-.treasury-comment-section.detailed-comment .treasury-comment-header h3::before {
-  content: "📋";
-  margin-right: 10px;
-  font-size: 20px;
+.general-treasury-comment-section .treasury-comment-content {
+  background-color: white;
+  border: 1px solid #b8daff;
+  border-radius: 6px;
+  padding: 16px;
 }
 
-.treasury-comment-section.main-comment .treasury-comment-header h3 {
-  color: #007bff;
+.general-treasury-comment-section .treasury-comment-text {
+  color: #004085;
+  font-size: 16px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.treasury-comment-section.detailed-comment .treasury-comment-header h3 {
-  color: #28a745;
+/* ��Увеличиваем отступ для секции категорий, чтобы отделить от комментариев */
+.category-tabs {
+  margin-top: 15px; /* Добавляем отступ сверху для категорий */
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .general-treasury-comment-section {
+    padding: 16px;
+    margin-bottom: 24px;
+    margin-top: 8px;
+  }
+
+  .general-treasury-comment-section .treasury-comment-header h3 {
+    font-size: 16px;
+  }
+
+  .general-treasury-comment-section .treasury-comment-text {
+    font-size: 14px;
+  }
 }

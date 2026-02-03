@@ -3,6 +3,7 @@ import axios from 'axios';
 import DataTable from '../components/DataTable';
 import { getTableColumns } from '../config/tableColumns';
 import { useColumnSettings } from '../contexts/ColumnSettingsContext';
+import "./TreasuryApproved.css";
 
 // Типы для комментариев
 interface ApprovalCommentInfo {
@@ -66,7 +67,7 @@ const TreasuryApproved: React.FC = () => {
       // Преобразуем массив ID в строку параметров
       const idsParam = requestIds.map(id => `request_ids=${id}`).join("&");
       const response = await api.get(`/treasury/batch-approval-comments?${idsParam}`);
-      
+
       // Если есть комментарии, берем первый (все заявки должны быть из одного процесса согласования)
       if (response.data && response.data.length > 0 && response.data[0].has_comment) {
         setDeputyCommentInfo(response.data[0]);
@@ -120,30 +121,6 @@ const TreasuryApproved: React.FC = () => {
     }
   }, [selectedRows]);
 
-  const handleMarkAsPaid = async () => {
-    if (selectedRows.length === 0) {
-      alert('Выберите хотя бы одну заявку для отметки об оплате');
-      return;
-    }
-
-    if (!window.confirm(`Отметить ${selectedRows.length} заявок как оплаченные?`)) {
-      return;
-    }
-
-    try {
-      await api.post('/treasury/approved/mark-paid', {
-        request_ids: selectedRows
-      });
-
-      alert(`Успешно отмечено ${selectedRows.length} заявок как оплаченные`);
-      loadApprovedRequests();
-      setSelectedRows([]);
-    } catch (error: any) {
-      console.error('Ошибка отметки об оплате:', error);
-      alert(error.response?.data?.detail || 'Ошибка отметки об оплате');
-    }
-  };
-
   // Функция экспорта заявок в Excel
   const handleExportToExcel = async () => {
     if (requests.length === 0) {
@@ -154,7 +131,7 @@ const TreasuryApproved: React.FC = () => {
     try {
       // Определяем, какие заявки экспортировать
       const exportData: any = {};
-      
+
       if (selectedRows.length > 0) {
         // Экспорт только выбранных заявок
         exportData.request_ids = selectedRows;
@@ -172,28 +149,28 @@ const TreasuryApproved: React.FC = () => {
       // Создаем ссылку для скачивания
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
-      
+
       // Извлекаем имя файла из заголовков
       const contentDisposition = response.headers['content-disposition'];
       let filename = `Заявки_к_оплате_${new Date().toLocaleDateString('ru-RU')}.xlsx`;
-      
+
       if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename*=UTF-8''(.+)/) || 
+        const filenameMatch = contentDisposition.match(/filename*=UTF-8''(.+)/) ||
                              contentDisposition.match(/filename="(.+)"/);
         if (filenameMatch && filenameMatch[1]) {
           filename = decodeURIComponent(filenameMatch[1]);
         }
       }
-      
+
       link.href = url;
       link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       link.remove();
-      
+
       // Освобождаем URL
       window.URL.revokeObjectURL(url);
-      
+
     } catch (error: any) {
       console.error('Ошибка экспорта в Excel:', error);
       alert(error.response?.data?.detail || 'Ошибка экспорта в Excel');
@@ -206,7 +183,7 @@ const TreasuryApproved: React.FC = () => {
     <div className="treasury-approved">
       <div className="treasury-approved-container">
         <h1>Согласованные заявки</h1>
-        
+
         {/* Комментарий заместителя */}
         {deputyCommentInfo && deputyCommentInfo.has_comment && deputyCommentInfo.comment && (
           <div className="deputy-comment-section">
@@ -220,7 +197,7 @@ const TreasuryApproved: React.FC = () => {
             </div>
           </div>
         )}
-        
+
         {deputyCommentInfo && deputyCommentInfo.has_comment && !deputyCommentInfo.comment && (
           <div className="deputy-comment-section">
             <div className="deputy-comment-header">
@@ -231,30 +208,23 @@ const TreasuryApproved: React.FC = () => {
             </div>
           </div>
         )}
-        
+
         <div className="action-section">
           <div className="selection-info">
             <span>Выбрано заявок: {selectedRows.length} из {requests.length}</span>
+          </div>
+          <div className="action-buttons">
             <button onClick={handleSelectAll} className="select-all-btn">
-              {selectedRows.length === requests.length ? 'Снять все' : 'Выбрать все'}
+              {selectedRows.length === requests.length ? "Снять все" : "Выбрать все"}
+            </button>
+            <button
+              onClick={handleExportToExcel}
+              disabled={requests.length === 0}
+              className="export-excel-btn"
+            >
+              Экспорт в Excel
             </button>
           </div>
-
-          <button
-            onClick={handleExportToExcel}
-            disabled={requests.length === 0}
-            className="export-excel-btn"
-          >
-            Экспорт в Excel
-          </button>
-
-          <button
-            onClick={handleMarkAsPaid}
-            disabled={selectedRows.length === 0}
-            className="mark-paid-btn"
-          >
-            Отметить как оплаченные ({selectedRows.length})
-          </button>
         </div>
 
         {loading ? (
@@ -262,15 +232,17 @@ const TreasuryApproved: React.FC = () => {
         ) : requests.length === 0 ? (
           <div className="no-data">Нет согласованных заявок</div>
         ) : (
-          <DataTable
-            columns={tableColumns}
-            data={requests}
-            selectedRows={selectedRows}
-            onRowSelect={handleRowSelect}
-            onSelectAll={handleSelectAll}
-            currentUserRole={currentUserRole}
-            columnSettings={columnSettings}
-          />
+          <div className="table-container">
+            <DataTable
+              columns={tableColumns}
+              data={requests}
+              selectedRows={selectedRows}
+              onRowSelect={handleRowSelect}
+              onSelectAll={handleSelectAll}
+              currentUserRole={currentUserRole}
+              columnSettings={columnSettings}
+            />
+          </div>
         )}
       </div>
     </div>

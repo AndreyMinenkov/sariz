@@ -93,14 +93,14 @@ const Sidebar: React.FC<SidebarProps> = ({ userRole, onNodeSelect, selectedNodeI
     {
       id: 'treasury_pending',
       icon: <FaHourglassHalf size={18} />,
-      text: 'Заявки на согласовании',
+      text: 'Заявки',
       counter: 'treasuryPendingCount',
       path: '/treasury/pending'
     },
     {
       id: 'approved_for_payment',
       icon: <FaCheck size={18} />,
-      text: 'Заявки',
+      text: 'К оплате',
       counter: 'approvedCount',
       path: '/treasury/approved'
     },
